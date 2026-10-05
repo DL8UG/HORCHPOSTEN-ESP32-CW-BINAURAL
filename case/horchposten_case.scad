@@ -187,6 +187,7 @@ module lid_lettering() {
         // name in the free area behind the keys
         translate([outer[0] / 2, outer[1] - 16]) text("HORCHPOSTEN", size = 6, font = font, halign = "center");
         translate([outer[0] / 2, outer[1] - 23]) text("ESP32 CW BINAURAL", size = 3.2, font = font, halign = "center");
+        translate([outer[0] / 2, outer[1] - 28]) text("by DL8UG", size = 2.4, font = "Liberation Sans", halign = "center");
         // key functions: short press above, long press below it
         for (i = [0:len(keys) - 1]) {
             k = keys[i];
