@@ -1,0 +1,65 @@
+# On a tag vX.Y.Z: test, build firmware and enclosure, create a DRAFT
+# release with the assets. The notes come from CHANGELOG.md; check them
+# and publish the draft by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Host tests
+        run: make -C firmware/test/host
+
+      - name: Firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: esp32
+          path: firmware
+          command: >-
+            git config --global --add safe.directory '*' && idf.py build &&
+            cd build && python -m esptool --chip esp32 merge_bin -o merged.bin @flash_args
+
+      - name: Enclosure
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq openscad fonts-liberation zip
+          cd case && mkdir -p stl
+          for p in bottom lid buttons; do
+            openscad -o stl/$p.stl -D "part=\"$p\"" horchposten_case.scad
+          done
+
+      - name: Assets
+        run: |
+          tag=${GITHUB_REF_NAME}
+          mkdir dist
+          b=firmware/build
+          cp $b/merged.bin dist/horchposten-$tag-merged.bin
+          cp $b/horchposten.bin dist/horchposten-$tag-app.bin
+          cp $b/bootloader/bootloader.bin dist/bootloader.bin
+          cp $b/partition_table/partition-table.bin dist/partition-table.bin
+          (cd case && zip -q ../dist/horchposten-case-$tag.zip README.md horchposten_case.scad stl/*.stl)
+          cp LICENSE dist/
+          # notes: the CHANGELOG section of this version
+          v=${tag#v}
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md." > notes.md
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=${GITHUB_REF_NAME}
+          pre=""
+          case "$tag" in v0.*|*-*) pre="--prerelease" ;; esac
+          gh release create "$tag" dist/* --draft $pre --title "Horchposten $tag" --notes-file notes.md

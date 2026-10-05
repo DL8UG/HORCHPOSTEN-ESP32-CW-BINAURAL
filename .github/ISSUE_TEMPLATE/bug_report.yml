@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time! A detailed description helps a lot.
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Shown in the serial log at start ("Horchposten v...")
+    validations:
+      required: true
+  - type: dropdown
+    id: codec
+    attributes:
+      label: Codec of your board
+      description: Shown in the serial log at start
+      options: [ES8388, AC101, not found / don't know]
+    validations:
+      required: true
+  - type: input
+    id: radio
+    attributes:
+      label: Transceiver and connection
+      description: e.g. "IC-7300, phones out -> LINE IN"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Mode, filter, pitch and keys you pressed help to reproduce it.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log
+      description: Output of `idf.py monitor` (115200 baud), if you have it
+      render: text
