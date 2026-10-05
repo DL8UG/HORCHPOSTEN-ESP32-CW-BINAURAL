@@ -1,0 +1,2 @@
+# rendered enclosure files: no text diffs, collapsed in GitHub reviews
+case/stl/*.stl -diff linguist-generated

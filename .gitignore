@@ -8,8 +8,7 @@ firmware/sdkconfig.old
 # host tests
 firmware/test/host/build/
 
-# generated enclosure files (attached to releases)
-case/stl/
+# enclosure previews (the STL files in case/stl/ are committed)
 case/out/
 
 # misc

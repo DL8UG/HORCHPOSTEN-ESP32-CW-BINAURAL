@@ -53,6 +53,9 @@ shell; jacks and USB plugs must line up with the openings.
 
 ## Building the STL files
 
+Ready STL files are in [stl/](stl/), rendered from the SCAD file with the
+estimated board positions. After changing parameters, render them again:
+
 ```sh
 for p in bottom lid buttons; do
   openscad -o stl/$p.stl -D "part=\"$p\"" horchposten_case.scad
