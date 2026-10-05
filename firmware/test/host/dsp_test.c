@@ -1,0 +1,358 @@
+/*
+ * Host tests of the signal chain (dsp.c) and the auto pitch (pitch.c).
+ *
+ * make -C firmware/test/host        run the checks
+ * make -C firmware/test/host wav    also write stereo WAV files to listen to
+ */
+#include "dsp.h"
+#include "pitch.h"
+
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+static int failures;
+
+#define CHECK(cond, ...) do { \
+    if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); \
+                   printf(__VA_ARGS__); printf("\n"); } \
+} while (0)
+
+static dsp_params_t defaults(void)
+{
+    dsp_params_t p = {
+        .mode = DSP_MODE_PITCH, .filter = DSP_FILTER_OFF, .width = DSP_WIDTH_MEDIUM,
+        .pitch_hz = 600, .agc = false, .swap = false,
+    };
+    return p;
+}
+
+/* deterministic noise, uniform -1..1 */
+static uint32_t rng = 12345;
+static float noise(void)
+{
+    rng = rng * 1664525u + 1013904223u;
+    return (float)(rng >> 8) / (float)(1u << 23) - 1.0f;
+}
+
+/* run n samples of a tone through the chain, return the stereo output */
+static float *run_tone(const dsp_params_t *p, float f, float amp, size_t n)
+{
+    float *in = malloc(n * sizeof(float));
+    float *out = malloc(2 * n * sizeof(float));
+    for (size_t k = 0; k < n; k++)
+        in[k] = amp * sinf(2.0f * (float)M_PI * f * k / DSP_FS);
+    dsp_init(p);
+    dsp_process(in, out, n);
+    free(in);
+    return out;
+}
+
+/* phase of right minus left in degrees (-180..180) and the level of each
+ * channel at frequency f, measured over the last m samples */
+static void measure(const float *st, size_t n, size_t m, float f,
+                    float *dphi, float *lvl_l, float *lvl_r)
+{
+    double lr = 0, li = 0, rr = 0, ri = 0;
+    for (size_t k = n - m; k < n; k++) {
+        double w = 2.0 * M_PI * f * k / DSP_FS;
+        lr += st[2 * k] * cos(w);
+        li -= st[2 * k] * sin(w);
+        rr += st[2 * k + 1] * cos(w);
+        ri -= st[2 * k + 1] * sin(w);
+    }
+    double pl = atan2(li, lr), pr = atan2(ri, rr);
+    double d = (pr - pl) * 180.0 / M_PI;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    *dphi = (float)d;
+    *lvl_l = (float)(2.0 * hypot(lr, li) / m);
+    *lvl_r = (float)(2.0 * hypot(rr, ri) / m);
+}
+
+static void test_pitch_mode(void)
+{
+    const size_t n = DSP_FS;     /* 1 s */
+    dsp_params_t p = defaults();
+    int d = dsp_pitch_delay_samples(p.width);
+
+    for (int off = -300; off <= 300; off += 50) {
+        float f = (float)(p.pitch_hz + off);
+        float *st = run_tone(&p, f, 0.3f, n);
+        float dphi, l, r;
+        measure(st, n, n / 2, f, &dphi, &l, &r);
+        /* expected: right leads by 2 pi (f - fc) D, i.e. right ear earlier
+         * for a higher pitch -> heard on the right */
+        float want = 360.0f * off * d / DSP_FS;
+        while (want > 180) want -= 360;
+        while (want < -180) want += 360;
+        CHECK(fabsf(dphi - want) < 3.0f, "pitch mode f=%.0f: phase R-L %.1f, want %.1f", f, dphi, want);
+        CHECK(fabsf(l - r) < 0.01f, "pitch mode f=%.0f: levels L %.3f R %.3f differ", f, l, r);
+        CHECK(fabsf(l - 0.3f) < 0.01f, "pitch mode f=%.0f: level %.3f, want 0.3", f, l);
+        free(st);
+    }
+
+    /* swapped: higher pitch -> left */
+    p.swap = true;
+    float *st = run_tone(&p, 750, 0.3f, n);
+    float dphi, l, r;
+    measure(st, n, n / 2, 750, &dphi, &l, &r);
+    CHECK(dphi < -30, "swap: phase R-L %.1f should be negative", dphi);
+    free(st);
+}
+
+static void test_iq_mode(void)
+{
+    const size_t n = DSP_FS / 2;
+    dsp_params_t p = defaults();
+    p.mode = DSP_MODE_IQ;
+    for (int f = 200; f <= 3000; f += 400) {
+        float *st = run_tone(&p, (float)f, 0.3f, n);
+        float dphi, l, r;
+        measure(st, n, n / 2, (float)f, &dphi, &l, &r);
+        CHECK(fabsf(fabsf(dphi) - 90.0f) < 2.0f, "iq f=%d: phase R-L %.1f, want +-90", f, dphi);
+        CHECK(fabsf(l - r) < 0.01f, "iq f=%d: levels L %.3f R %.3f", f, l, r);
+    }
+}
+
+static void test_haas_mono(void)
+{
+    const size_t n = DSP_FS / 2;
+    dsp_params_t p = defaults();
+    p.mode = DSP_MODE_HAAS;
+    /* impulse: right comes D samples after left */
+    float *in = calloc(n, sizeof(float));
+    float *out = malloc(2 * n * sizeof(float));
+    in[100] = 1.0f;
+    dsp_init(&p);
+    dsp_process(in, out, n);
+    size_t pl = 0, pr = 0;
+    for (size_t k = 0; k < n; k++) {
+        if (fabsf(out[2 * k]) > fabsf(out[2 * pl])) pl = k;
+        if (fabsf(out[2 * k + 1]) > fabsf(out[2 * pr + 1])) pr = k;
+    }
+    CHECK((int)(pr - pl) == dsp_haas_delay_samples(p.width),
+          "haas: right %zu samples after left, want %d", pr - pl, dsp_haas_delay_samples(p.width));
+
+    p.mode = DSP_MODE_MONO;
+    dsp_init(&p);
+    dsp_process(in, out, n);
+    int same = 1;
+    for (size_t k = 0; k < n; k++)
+        same &= out[2 * k] == out[2 * k + 1];
+    CHECK(same, "mono: left and right differ");
+    free(in);
+    free(out);
+}
+
+static void test_filter(void)
+{
+    const size_t n = DSP_FS;
+    for (dsp_filter_t flt = DSP_FILTER_500; flt < DSP_FILTER_COUNT; flt++) {
+        dsp_params_t p = defaults();
+        p.mode = DSP_MODE_MONO;
+        p.filter = flt;
+        int bw = dsp_filter_bw_hz(flt);
+        float l, r, dphi;
+
+        float *st = run_tone(&p, 600, 0.3f, n);
+        measure(st, n, n / 2, 600, &dphi, &l, &r);
+        free(st);
+        CHECK(fabsf(l - 0.3f) < 0.01f, "filter %d: centre level %.3f, want 0.3", bw, l);
+
+        /* -3 dB at about +-bw/2 */
+        float fe = 600 + bw / 2.0f;
+        st = run_tone(&p, fe, 0.3f, n);
+        measure(st, n, n / 2, fe, &dphi, &l, &r);
+        free(st);
+        float db = 20 * log10f(l / 0.3f);
+        CHECK(db < -2.0f && db > -4.5f, "filter %d: %.1f dB at band edge, want about -3", bw, db);
+
+        /* far off: strongly damped */
+        float ff = 600 + 2.0f * bw;
+        st = run_tone(&p, ff, 0.3f, n);
+        measure(st, n, n / 2, ff, &dphi, &l, &r);
+        free(st);
+        db = 20 * log10f(l / 0.3f);
+        CHECK(db < -20.0f, "filter %d: only %.1f dB at %.0f Hz", bw, db, ff);
+    }
+}
+
+static void test_agc(void)
+{
+    const size_t n = 2 * DSP_FS;
+    dsp_params_t p = defaults();
+    p.mode = DSP_MODE_MONO;
+    p.agc = true;
+    float lv[3];
+    const float amps[3] = { 0.005f, 0.05f, 0.5f };
+    for (int i = 0; i < 3; i++) {
+        float *st = run_tone(&p, 600, amps[i], n);
+        float dphi, r;
+        measure(st, n, n / 4, 600, &dphi, &lv[i], &r);
+        free(st);
+    }
+    /* 40 dB input range -> output within 3 dB */
+    float spread = 20 * log10f(fmaxf(fmaxf(lv[0], lv[1]), lv[2]) / fminf(fminf(lv[0], lv[1]), lv[2]));
+    CHECK(spread < 3.0f, "agc: output levels %.3f %.3f %.3f (spread %.1f dB)", lv[0], lv[1], lv[2], spread);
+
+    /* nothing above full scale even for a hot input */
+    float *st = run_tone(&p, 600, 3.0f, n);
+    float mx = 0;
+    for (size_t k = 0; k < 2 * n; k++)
+        mx = fmaxf(mx, fabsf(st[k]));
+    free(st);
+    CHECK(mx <= 1.0f, "agc: peak %.3f above full scale", mx);
+}
+
+static void test_xfade(void)
+{
+    /* a mode change must not jump: max step between samples stays small */
+    const size_t n = DSP_FS / 2, blk = 64;
+    dsp_params_t p = defaults();
+    float in[64], out[128];
+    dsp_init(&p);
+    float last_l = 0, last_r = 0, maxstep = 0;
+    size_t k = 0;
+    for (size_t b = 0; b < n / blk; b++) {
+        if (b == n / blk / 2) {
+            p.mode = DSP_MODE_HAAS;
+            dsp_set_params(&p);
+        }
+        for (size_t i = 0; i < blk; i++, k++)
+            in[i] = 0.3f * sinf(2.0f * (float)M_PI * 600 * k / DSP_FS);
+        dsp_process(in, out, blk);
+        for (size_t i = 0; i < blk; i++) {
+            if (b > 4) {
+                maxstep = fmaxf(maxstep, fabsf(out[2 * i] - last_l));
+                maxstep = fmaxf(maxstep, fabsf(out[2 * i + 1] - last_r));
+            }
+            last_l = out[2 * i];
+            last_r = out[2 * i + 1];
+        }
+    }
+    /* a 600 Hz sine of 0.3 moves at most 0.3 * 2 pi 600 / 16000 = 0.071 */
+    CHECK(maxstep < 0.08f, "xfade: step of %.3f at the mode change", maxstep);
+}
+
+static void test_auto_pitch(void)
+{
+    const size_t n = DSP_FS * PITCH_CAPTURE_MS / 1000;
+    float *buf = malloc(n * sizeof(float));
+    const float tones[] = { 312, 487, 600, 733, 958 };
+    for (size_t t = 0; t < sizeof(tones) / sizeof(tones[0]); t++) {
+        for (size_t k = 0; k < n; k++)
+            buf[k] = 0.05f * sinf(2.0f * (float)M_PI * tones[t] * k / DSP_FS)
+                   + 0.02f * sinf(2.0f * (float)M_PI * 450 * k / DSP_FS)  /* weaker one */
+                   + 0.1f * noise();
+        float hz = 0;
+        bool ok = pitch_detect(buf, n, DSP_FS, DSP_PITCH_MIN, DSP_PITCH_MAX, &hz);
+        CHECK(ok && fabsf(hz - tones[t]) < 5.0f, "auto pitch %.0f Hz: found %d %.1f", tones[t], ok, hz);
+    }
+    /* noise only: no result */
+    for (size_t k = 0; k < n; k++)
+        buf[k] = 0.1f * noise();
+    float hz;
+    CHECK(!pitch_detect(buf, n, DSP_FS, DSP_PITCH_MIN, DSP_PITCH_MAX, &hz),
+          "auto pitch: found %.1f Hz in pure noise", hz);
+    free(buf);
+}
+
+/* ---- WAV files to listen to ---- */
+
+static void write_wav(const char *name, const float *st, size_t frames)
+{
+    FILE *f = fopen(name, "wb");
+    if (!f) {
+        perror(name);
+        failures++;
+        return;
+    }
+    uint32_t data = (uint32_t)frames * 4, riff = 36 + data, fs = DSP_FS, br = DSP_FS * 4;
+    uint32_t fmt_len = 16;
+    uint16_t pcm = 1, ch = 2, align = 4, bits = 16;
+    fwrite("RIFF", 1, 4, f); fwrite(&riff, 4, 1, f); fwrite("WAVE", 1, 4, f);
+    fwrite("fmt ", 1, 4, f); fwrite(&fmt_len, 4, 1, f); fwrite(&pcm, 2, 1, f);
+    fwrite(&ch, 2, 1, f); fwrite(&fs, 4, 1, f); fwrite(&br, 4, 1, f);
+    fwrite(&align, 2, 1, f); fwrite(&bits, 2, 1, f);
+    fwrite("data", 1, 4, f); fwrite(&data, 4, 1, f);
+    for (size_t k = 0; k < 2 * frames; k++) {
+        int16_t v = (int16_t)lrintf(fmaxf(-1, fminf(1, st[k])) * 32767);
+        fwrite(&v, 2, 1, f);
+    }
+    fclose(f);
+    printf("wrote %s\n", name);
+}
+
+/* keying of one station: "CQ TEST" at a speed in wpm, repeated */
+static float keying(const char *bits, int wpm, size_t k, float offset_s)
+{
+    float dot = 1.2f / wpm;
+    float t = (float)k / DSP_FS + offset_s;
+    size_t len = strlen(bits);
+    size_t i = (size_t)(t / dot) % len;
+    return bits[i] == '1' ? 1.0f : 0.0f;
+}
+
+static void write_wavs(void)
+{
+    /* C   Q   T E S T, as dot units: 1 = key down */
+    const char *cq = "1110101110100000111011101011100000001110001000101010001110000000";
+    const size_t n = 12 * DSP_FS;
+    float *in = malloc(n * sizeof(float));
+    float *out = malloc(2 * n * sizeof(float));
+    /* three stations at 480, 600 and 760 Hz, different speeds, plus noise */
+    const float f[3] = { 480, 600, 760 }, a[3] = { 0.04f, 0.05f, 0.03f };
+    const int wpm[3] = { 18, 22, 26 };
+    float env[3] = { 0 };
+    for (size_t k = 0; k < n; k++) {
+        float x = 0.05f * noise();
+        for (int s = 0; s < 3; s++) {
+            float want = keying(cq, wpm[s], k, 0.37f * s);
+            env[s] += (want - env[s]) * 0.004f;      /* soft keying edges */
+            x += a[s] * env[s] * sinf(2.0f * (float)M_PI * f[s] * k / DSP_FS);
+        }
+        in[k] = x;
+    }
+    static const struct { const char *name; dsp_mode_t mode; dsp_filter_t flt; } runs[] = {
+        { "mono.wav", DSP_MODE_MONO, DSP_FILTER_OFF },
+        { "pitch.wav", DSP_MODE_PITCH, DSP_FILTER_OFF },
+        { "pitch_filter500.wav", DSP_MODE_PITCH, DSP_FILTER_500 },
+        { "iq90.wav", DSP_MODE_IQ, DSP_FILTER_OFF },
+        { "haas.wav", DSP_MODE_HAAS, DSP_FILTER_OFF },
+    };
+    for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+        dsp_params_t p = defaults();
+        p.mode = runs[r].mode;
+        p.filter = runs[r].flt;
+        p.agc = true;
+        dsp_init(&p);
+        dsp_process(in, out, n);
+        char path[64];
+        snprintf(path, sizeof(path), "build/%s", runs[r].name);
+        write_wav(path, out, n);
+    }
+    free(in);
+    free(out);
+}
+
+int main(int argc, char **argv)
+{
+    test_pitch_mode();
+    test_iq_mode();
+    test_haas_mono();
+    test_filter();
+    test_agc();
+    test_xfade();
+    test_auto_pitch();
+    if (argc > 1 && strcmp(argv[1], "--wav") == 0)
+        write_wavs();
+    printf("%s (%d failures)\n", failures ? "FAILED" : "all tests passed", failures);
+    return failures ? 1 : 0;
+}
