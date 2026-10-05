@@ -137,7 +137,7 @@ static float clampf(float v, float lo, float hi)
     return v < lo ? lo : v > hi ? hi : v;
 }
 
-static void params_sanitize(dsp_params_t *p)
+void dsp_params_sanitize(dsp_params_t *p)
 {
     if ((unsigned)p->mode >= DSP_MODE_COUNT) p->mode = DSP_MODE_PITCH;
     if ((unsigned)p->filter >= DSP_FILTER_COUNT) p->filter = DSP_FILTER_OFF;
@@ -312,7 +312,7 @@ static void stereo(const stage_t *st, float *l, float *r)
 static void apply(const dsp_params_t *p)
 {
     dsp_params_t n = *p;
-    params_sanitize(&n);
+    dsp_params_sanitize(&n);
     if (n.mode != s.cur.mode || n.width != s.cur.width || n.swap != s.cur.swap) {
         s.st_old = s.st;
         s.xfade = XFADE_N;
@@ -340,7 +340,7 @@ void dsp_init(const dsp_params_t *p)
         s.ap_b[i].a2 = HILB_B[i] * HILB_B[i];
     }
     s.cur = *p;
-    params_sanitize(&s.cur);
+    dsp_params_sanitize(&s.cur);
     stage_set(&s.st, &s.cur);
     s.st_old = s.st;
     bandpass_design(&s.bp[0], s.cur.pitch_hz, dsp_filter_bw_hz(s.cur.filter));

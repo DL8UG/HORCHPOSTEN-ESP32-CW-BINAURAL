@@ -61,12 +61,12 @@ bool settings_load(ui_state_t *st)
     }
     *st = s.st;
     /* range checks: a damaged entry must not give silly values */
-    if ((unsigned)st->dsp.mode >= DSP_MODE_COUNT) st->dsp.mode = DSP_MODE_PITCH;
-    if ((unsigned)st->dsp.filter >= DSP_FILTER_COUNT) st->dsp.filter = DSP_FILTER_OFF;
-    if ((unsigned)st->dsp.width >= DSP_WIDTH_COUNT) st->dsp.width = DSP_WIDTH_MEDIUM;
-    if (st->dsp.pitch_hz < DSP_PITCH_MIN || st->dsp.pitch_hz > DSP_PITCH_MAX) st->dsp.pitch_hz = 600;
+    dsp_params_sanitize(&st->dsp);
     if (st->volume < 0 || st->volume > CODEC_VOL_MAX) st->volume = 20;
-    if (st->in_gain_db < 0 || st->in_gain_db > UI_GAIN_MAX_DB) st->in_gain_db = 0;
+    if (st->in_gain_db < 0 || st->in_gain_db > UI_GAIN_MAX_DB || st->in_gain_db % UI_GAIN_STEP_DB)
+        st->in_gain_db = 0;
+    /* never start muted: silence with no sign of it looks like a fault */
+    st->mute = false;
     return true;
 }
 
