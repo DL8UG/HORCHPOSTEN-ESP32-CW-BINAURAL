@@ -75,6 +75,7 @@ static struct {
 
     float agc_env, agc_gain;
     int agc_hang;
+    float agc_att, agc_dec, agc_smooth;     /* one pole coefficients */
 
     allpass_t ap_a[4], ap_b[4];
     float a_delay;          /* one sample delay of path A */
@@ -187,20 +188,17 @@ static float agc(float x)
 {
     if (!s.cur.agc)
         return x;
-    const float att = 1.0f - expf(-1.0f / (AGC_ATTACK_S * DSP_FS));
-    const float dec = 1.0f - expf(-1.0f / (AGC_DECAY_S * DSP_FS));
-    const float smooth = 1.0f - expf(-1.0f / (AGC_SMOOTH_S * DSP_FS));
     float a = fabsf(x);
     if (a > s.agc_env) {
-        s.agc_env += att * (a - s.agc_env);
+        s.agc_env += s.agc_att * (a - s.agc_env);
         s.agc_hang = (int)(AGC_HANG_S * DSP_FS);
     } else if (s.agc_hang > 0) {
         s.agc_hang--;
     } else {
-        s.agc_env += dec * (a - s.agc_env);
+        s.agc_env += s.agc_dec * (a - s.agc_env);
     }
     float want = AGC_TARGET / fmaxf(s.agc_env, AGC_TARGET / AGC_MAX_GAIN);
-    s.agc_gain += smooth * (want - s.agc_gain);
+    s.agc_gain += s.agc_smooth * (want - s.agc_gain);
     return x * s.agc_gain;
 }
 
@@ -299,6 +297,9 @@ void dsp_init(const dsp_params_t *p)
     s.st_old = s.st;
     bandpass_design(s.cur.pitch_hz, dsp_filter_bw_hz(s.cur.filter));
     s.agc_gain = 1.0f;
+    s.agc_att = 1.0f - expf(-1.0f / (AGC_ATTACK_S * DSP_FS));
+    s.agc_dec = 1.0f - expf(-1.0f / (AGC_DECAY_S * DSP_FS));
+    s.agc_smooth = 1.0f - expf(-1.0f / (AGC_SMOOTH_S * DSP_FS));
 }
 
 void dsp_set_params(const dsp_params_t *p)

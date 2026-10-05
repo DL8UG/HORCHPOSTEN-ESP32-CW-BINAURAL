@@ -1,0 +1,29 @@
+menu "Horchposten"
+
+    choice HORCH_CODEC
+        prompt "Audio codec"
+        default HORCH_CODEC_AUTO
+        help
+            The ESP32-Audio-Kit exists with an ES8388 (V2.2) or an AC101 codec.
+            Auto probes the I2C bus at start.
+
+        config HORCH_CODEC_AUTO
+            bool "Detect at start"
+        config HORCH_CODEC_ES8388
+            bool "ES8388"
+        config HORCH_CODEC_AC101
+            bool "AC101"
+    endchoice
+
+    config HORCH_INPUT_RIGHT
+        bool "Take the audio from the right input channel"
+        default n
+        help
+            By default the left channel (tip of the LINE IN plug) is used,
+            which works with mono and stereo plugs.
+
+    config HORCH_LED_ACTIVE_LOW
+        bool "Status LED is active low"
+        default y
+
+endmenu

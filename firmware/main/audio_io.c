@@ -1,0 +1,116 @@
+#include "audio_io.h"
+
+#include <math.h>
+#include <string.h>
+
+#include "driver/i2s_std.h"
+#include "dsp.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "sdkconfig.h"
+
+static const char *TAG = "audio";
+static i2s_chan_handle_t s_tx, s_rx;
+static volatile float s_gain = 1.0f;
+
+/* capture for the auto pitch */
+static float *volatile s_cap_buf;
+static volatile size_t s_cap_n, s_cap_pos;
+static SemaphoreHandle_t s_cap_done;
+
+esp_err_t audio_io_init(const board_i2s_pins_t *pins)
+{
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    chan_cfg.dma_desc_num = 4;
+    chan_cfg.dma_frame_num = AUDIO_BLOCK;
+    chan_cfg.auto_clear_after_cb = true;
+    ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &s_tx, &s_rx));
+
+    i2s_std_config_t std = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(DSP_FS),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .gpio_cfg = {
+            .mclk = BOARD_I2S_MCLK,
+            .bclk = BOARD_I2S_BCK,
+            .ws = pins->ws,
+            .dout = pins->dout,
+            .din = BOARD_I2S_DIN,
+        },
+    };
+    /* APLL gives an exact MCLK of 256 * 16 kHz for the codec */
+    std.clk_cfg.clk_src = I2S_CLK_SRC_APLL;
+    std.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+    ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_tx, &std));
+    ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_rx, &std));
+    ESP_ERROR_CHECK(i2s_channel_enable(s_tx));
+    ESP_ERROR_CHECK(i2s_channel_enable(s_rx));
+    s_cap_done = xSemaphoreCreateBinary();
+    return ESP_OK;
+}
+
+void audio_set_digital_gain(int db)
+{
+    s_gain = powf(10.0f, db / 20.0f);
+}
+
+bool audio_capture(float *buf, size_t n, int timeout_ms)
+{
+    xSemaphoreTake(s_cap_done, 0);
+    s_cap_n = n;
+    s_cap_pos = 0;
+    s_cap_buf = buf;            /* the audio task starts filling now */
+    bool ok = xSemaphoreTake(s_cap_done, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    s_cap_buf = NULL;
+    return ok;
+}
+
+static void audio_task(void *arg)
+{
+    (void)arg;
+    static int16_t rx[2 * AUDIO_BLOCK], tx[2 * AUDIO_BLOCK];
+    static float in[AUDIO_BLOCK], out[2 * AUDIO_BLOCK];
+#if CONFIG_HORCH_INPUT_RIGHT
+    const int ch = 1;
+#else
+    const int ch = 0;
+#endif
+    unsigned overruns = 0;
+    for (;;) {
+        size_t got = 0;
+        if (i2s_channel_read(s_rx, rx, sizeof(rx), &got, portMAX_DELAY) != ESP_OK
+            || got != sizeof(rx)) {
+            if (++overruns % 100 == 1)
+                ESP_LOGW(TAG, "short read (%u bytes)", (unsigned)got);
+            continue;
+        }
+        float g = s_gain / 32768.0f;
+        for (int i = 0; i < AUDIO_BLOCK; i++)
+            in[i] = rx[2 * i + ch] * g;
+
+        float *cap = s_cap_buf;
+        if (cap) {
+            size_t pos = s_cap_pos;
+            for (int i = 0; i < AUDIO_BLOCK && pos < s_cap_n; i++)
+                cap[pos++] = in[i];
+            s_cap_pos = pos;
+            if (pos >= s_cap_n) {
+                s_cap_buf = NULL;
+                xSemaphoreGive(s_cap_done);
+            }
+        }
+
+        dsp_process(in, out, AUDIO_BLOCK);
+        for (int i = 0; i < 2 * AUDIO_BLOCK; i++)
+            tx[i] = (int16_t)lrintf(out[i] * 32767.0f);
+        size_t put = 0;
+        i2s_channel_write(s_tx, tx, sizeof(tx), &put, portMAX_DELAY);
+    }
+}
+
+void audio_start(void)
+{
+    /* core 1, above the UI; the signal chain needs about 15 % of a core */
+    xTaskCreatePinnedToCore(audio_task, "audio", 4096, NULL, 20, NULL, 1);
+}
