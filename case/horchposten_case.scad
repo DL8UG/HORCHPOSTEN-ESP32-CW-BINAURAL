@@ -57,10 +57,11 @@ screw_head_h = 1.6;
 insert_d = 4.0;            // M3 heat-set insert (or 2.6 for self-tapping screws)
 standoff_d = 7;
 key_hole_d = 6.6;          // lid guide for the plungers
-plunger_d = 6.0;
+plunger_d = 6.0;           // 0.3 mm play on each side in the guide
 plunger_flange_d = 8.6;
 plunger_flange_h = 1.2;
 plunger_above = 1.6;       // how far the plungers stand above the lid
+tube_press = 0.2;          // lid tubes this much longer than the room above the PCB
 engrave = 0.6;             // depth of the lid lettering
 font = "Liberation Sans:style=Bold";
 
@@ -150,7 +151,7 @@ module bottom() {
 }
 
 module lid() {
-    tube_h = shell_h - pcb_top - 0.2;      // presses the PCB down a little
+    tube_h = shell_h - pcb_top + tube_press;   // presses the PCB down a little
     difference() {
         union() {
             translate([0, 0, shell_h]) rounded_box(outer, corner_r, lid_t);
@@ -204,7 +205,7 @@ module lid_lettering() {
 module plunger() {
     total = (shell_h + lid_t + plunger_above) - (pcb_top + key_top + 0.3);
     cylinder(d = plunger_flange_d, h = plunger_flange_h);
-    cylinder(d = plunger_d - 0.4, h = total);
+    cylinder(d = plunger_d, h = total);
 }
 
 module buttons() {

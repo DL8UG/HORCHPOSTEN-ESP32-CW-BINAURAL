@@ -80,7 +80,8 @@ and the SCAD source to each GitHub release.
 2. Put the board in, jacks first through the side openings.
 3. Drop the plungers into the lid from below (flange inside), put the lid
    on and fasten it with the four screws. Don't overtighten: the lid tubes
-   clamp the PCB.
+   clamp the PCB. They are `tube_press` (0.2 mm) longer than the room above
+   the board; if a gap stays at the rim, lower that value.
 4. Rubber feet into the recesses under the bottom.
 
 ## Display window
