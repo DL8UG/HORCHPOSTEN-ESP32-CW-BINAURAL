@@ -1,0 +1,19 @@
+# ESP-IDF
+firmware/build/
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/sdkconfig
+firmware/sdkconfig.old
+
+# host tests
+firmware/test/host/build/
+
+# generated enclosure files (attached to releases)
+case/stl/
+case/out/
+
+# misc
+__pycache__/
+*.pyc
+.vscode/
+.idea/
