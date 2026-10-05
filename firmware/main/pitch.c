@@ -13,7 +13,8 @@
 
 #define STEP_HZ   5
 #define MAX_BINS  256
-#define MIN_SNR   10.0f     /* peak / median power, 10 dB */
+#define MIN_SNR   25.0f     /* peak / median power, 14 dB; at 10 dB white noise
+                               passed as a tone in about 16 % of the captures */
 
 static int cmp_float(const void *a, const void *b)
 {
