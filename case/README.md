@@ -24,7 +24,7 @@ Parametric enclosure for the ESP32-Audio-Kit V2.2 in OpenSCAD:
 | `bottom` | 1 | shell with standoffs, openings for the jacks and USB, vent slots |
 | `lid` | 1 | key guides, lettering, holes for RESET/BOOT and the LED |
 | `buttons` | 1 set | six key plungers |
-| M3 x 16 cap screws | 4 | through lid and PCB into the standoffs |
+| M3 x 16 button head screws (ISO 7380) | 4 | through lid and PCB into the standoffs; cap screws (DIN 912) are too tall for the counterbore |
 | M3 heat-set inserts | 4 | 4.0 mm hole; for self-tapping screws set `insert_d = 2.6` |
 | rubber feet | 4 | 10 mm, self-adhesive |
 | clear filament, 3 mm long | 1 | light pipe for the status LED (optional) |
