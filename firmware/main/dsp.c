@@ -4,6 +4,9 @@
  *
  * All modes take their samples from the same I/Q history, so a mode or
  * width change can be cross-faded by running the stereo stage twice.
+ * A new band pass is cross-faded with the old one the same way, and a new
+ * centre pitch glides. A change that arrives during a fade waits for its
+ * end, so a fade never jumps.
  */
 #include "dsp.h"
 
@@ -20,18 +23,29 @@
 #define HIST_MASK   (HIST_LEN - 1)
 #define XFADE_N     (DSP_FS / 50)   /* 20 ms */
 
-/* AGC */
+/*
+ * AGC: the level is taken from the input, the gain is applied AGC_LOOK
+ * samples later. So the gain is already down when the first element after
+ * a pause comes out.
+ */
 #define AGC_TARGET  0.30f
 #define AGC_MAX_GAIN 60.0f          /* about 35 dB */
-#define AGC_ATTACK_S 0.002f
+#define AGC_LOOK    (DSP_FS * 3 / 1000)     /* 3 ms look-ahead */
+#define AGC_DL_LEN  64              /* power of two, > AGC_LOOK */
 #define AGC_DECAY_S  0.300f
 #define AGC_HANG_S   0.150f         /* hold the gain over CW element gaps */
-#define AGC_SMOOTH_S 0.003f         /* gain change smoothing, avoids clicks */
+#define AGC_FALL_S   0.0004f        /* gain decrease, well inside the look-ahead */
+#define AGC_RISE_S   0.003f         /* gain increase, avoids clicks */
 
 typedef struct {
     float b0, b1, b2, a1, a2;
     float z1, z2;
 } biquad_t;
+
+typedef struct {
+    biquad_t bq[BP_STAGES];
+    bool on;
+} bandpass_t;
 
 /* second order allpass section y = a2*(x + y[n-2]) - x[n-2] */
 typedef struct {
@@ -55,13 +69,16 @@ static const float HILB_B[4] = {
 typedef struct {
     dsp_params_t p;
     int d_pitch, d_haas;
-    float rot_c, rot_s;     /* cos, sin of wc D for DSP_MODE_PITCH */
+    float th;               /* wc D for DSP_MODE_PITCH */
+    float rot_c, rot_s;     /* cos, sin of the rotation in use */
 } stage_t;
 
 static struct {
     dsp_params_t cur;       /* in use by the audio path */
     stage_t st, st_old;     /* stereo stage now and fading out */
     int xfade;              /* samples left of the cross-fade, 0 = none */
+    int glide;              /* samples left of a pitch glide */
+    float glide_from;       /* rotation the glide starts from */
 
     /* pending parameters from another task (seqlock) */
     volatile unsigned seq;
@@ -70,12 +87,16 @@ static struct {
     unsigned taken_seq;
 
     float dc_x1, dc_y1;
-    biquad_t bp[BP_STAGES];
-    bool bp_on;
+    bandpass_t bp[2];       /* in use and fading out */
+    int bp_cur;
+    int bp_xfade;
 
     float agc_env, agc_gain;
     int agc_hang;
-    float agc_att, agc_dec, agc_smooth;     /* one pole coefficients */
+    float agc_dec, agc_fall, agc_rise;      /* one pole coefficients */
+    float agc_mix;          /* 0 = AGC off .. 1 = on, faded */
+    float agc_dl[AGC_DL_LEN];
+    unsigned agc_pos;
 
     allpass_t ap_a[4], ap_b[4];
     float a_delay;          /* one sample delay of path A */
@@ -131,10 +152,11 @@ static void params_sanitize(dsp_params_t *p)
  * (pre-warped edges). Each stage holds one conjugate pole pair and the
  * zeros at z = 1 and z = -1; each is scaled to 0 dB at the centre.
  */
-static void bandpass_design(int fc, int bw)
+static void bandpass_design(bandpass_t *f, int fc, int bw)
 {
-    s.bp_on = bw > 0;
-    if (!s.bp_on)
+    memset(f, 0, sizeof(*f));
+    f->on = bw > 0;
+    if (!f->on)
         return;
     const double fs2 = 2.0 * DSP_FS;
     double wl = fs2 * tan(M_PI * (fc - bw / 2.0) / DSP_FS);
@@ -150,7 +172,7 @@ static void bandpass_design(int fc, int bw)
             if (cimag(cand[j]) <= 0.0)
                 continue;           /* its conjugate is taken instead */
             double complex z = (fs2 + cand[j]) / (fs2 - cand[j]);
-            biquad_t *bq = &s.bp[n++];
+            biquad_t *bq = &f->bq[n++];
             double a1 = -2.0 * creal(z), a2 = creal(z) * creal(z) + cimag(z) * cimag(z);
             /* gain at the centre with numerator 1 - z^-2 */
             double complex zi = 1.0 / ez;
@@ -174,6 +196,14 @@ static float biquad(biquad_t *b, float x)
     return y;
 }
 
+static float bandpass(bandpass_t *f, float x)
+{
+    if (f->on)
+        for (int i = 0; i < BP_STAGES; i++)
+            x = biquad(&f->bq[i], x);
+    return x;
+}
+
 static float allpass(allpass_t *a, float x)
 {
     float y = a->a2 * (x + a->y2) - a->x2;
@@ -186,11 +216,11 @@ static float allpass(allpass_t *a, float x)
 
 static float agc(float x)
 {
-    if (!s.cur.agc)
-        return x;
+    /* peak envelope with hang; runs while the AGC is off too, so it is
+     * up to date when the AGC is switched on */
     float a = fabsf(x);
     if (a > s.agc_env) {
-        s.agc_env += s.agc_att * (a - s.agc_env);
+        s.agc_env = a;
         s.agc_hang = (int)(AGC_HANG_S * DSP_FS);
     } else if (s.agc_hang > 0) {
         s.agc_hang--;
@@ -198,8 +228,18 @@ static float agc(float x)
         s.agc_env += s.agc_dec * (a - s.agc_env);
     }
     float want = AGC_TARGET / fmaxf(s.agc_env, AGC_TARGET / AGC_MAX_GAIN);
-    s.agc_gain += s.agc_smooth * (want - s.agc_gain);
-    return x * s.agc_gain;
+    s.agc_gain += (want < s.agc_gain ? s.agc_fall : s.agc_rise) * (want - s.agc_gain);
+
+    /* the delay is there with the AGC off too: same latency, no jump */
+    s.agc_dl[s.agc_pos & (AGC_DL_LEN - 1)] = x;
+    float xd = s.agc_dl[(s.agc_pos - AGC_LOOK) & (AGC_DL_LEN - 1)];
+    s.agc_pos++;
+
+    if (s.cur.agc && s.agc_mix < 1.0f)
+        s.agc_mix = fminf(s.agc_mix + 1.0f / XFADE_N, 1.0f);
+    else if (!s.cur.agc && s.agc_mix > 0.0f)
+        s.agc_mix = fmaxf(s.agc_mix - 1.0f / XFADE_N, 0.0f);
+    return xd * (1.0f + s.agc_mix * (s.agc_gain - 1.0f));
 }
 
 /* soft limiter: linear up to 0.7, then smoothly towards 1.0 */
@@ -223,9 +263,9 @@ static void stage_set(stage_t *st, const dsp_params_t *p)
     st->p = *p;
     st->d_pitch = dsp_pitch_delay_samples(p->width);
     st->d_haas = dsp_haas_delay_samples(p->width);
-    float th = 2.0f * (float)M_PI * p->pitch_hz * st->d_pitch / DSP_FS;
-    st->rot_c = cosf(th);
-    st->rot_s = sinf(th);
+    st->th = 2.0f * (float)M_PI * p->pitch_hz * st->d_pitch / DSP_FS;
+    st->rot_c = cosf(st->th);
+    st->rot_s = sinf(st->th);
 }
 
 /* stereo stage for one sample, history already holds the newest I/Q */
@@ -237,7 +277,8 @@ static void stereo(const stage_t *st, float *l, float *r)
     case DSP_MODE_PITCH: {
         /*
          * Q leads I by 90 degrees, so I - jQ is the analytic signal.
-         * One ear gets I(t), the other Re{(I - jQ)(t - D) * e^(-j wc D)}.
+         * One ear gets I(t), the other Re{(I - jQ)(t - D) * e^(+j wc D)}
+         * = I(t - D) cos(wc D) + Q(t - D) sin(wc D).
          * For a tone at f this is a phase lag of 2 pi (f - fc) D: zero at
          * the centre pitch, so the signal sits in the middle, a lower tone
          * leads in the delayed ear, a higher one lags there.
@@ -272,14 +313,21 @@ static void apply(const dsp_params_t *p)
 {
     dsp_params_t n = *p;
     params_sanitize(&n);
-    bool stereo_change = n.mode != s.cur.mode || n.width != s.cur.width || n.swap != s.cur.swap;
-    if (stereo_change) {
-        /* a change during a running fade restarts it from the newest stage */
+    if (n.mode != s.cur.mode || n.width != s.cur.width || n.swap != s.cur.swap) {
         s.st_old = s.st;
         s.xfade = XFADE_N;
+    } else if (n.pitch_hz != s.cur.pitch_hz) {
+        /* only the rotation changes: let it glide instead of cross-fading
+         * two phases of the same tone, which can cancel each other */
+        s.glide_from = s.st.th;
+        s.glide = XFADE_N;
     }
-    if (n.filter != s.cur.filter || n.pitch_hz != s.cur.pitch_hz)
-        bandpass_design(n.pitch_hz, dsp_filter_bw_hz(n.filter));
+    if (n.filter != s.cur.filter || (n.filter != DSP_FILTER_OFF && n.pitch_hz != s.cur.pitch_hz)) {
+        /* the new filter starts from rest in the other slot */
+        s.bp_cur ^= 1;
+        bandpass_design(&s.bp[s.bp_cur], n.pitch_hz, dsp_filter_bw_hz(n.filter));
+        s.bp_xfade = XFADE_N;
+    }
     s.cur = n;
     stage_set(&s.st, &n);
 }
@@ -295,11 +343,12 @@ void dsp_init(const dsp_params_t *p)
     params_sanitize(&s.cur);
     stage_set(&s.st, &s.cur);
     s.st_old = s.st;
-    bandpass_design(s.cur.pitch_hz, dsp_filter_bw_hz(s.cur.filter));
+    bandpass_design(&s.bp[0], s.cur.pitch_hz, dsp_filter_bw_hz(s.cur.filter));
     s.agc_gain = 1.0f;
-    s.agc_att = 1.0f - expf(-1.0f / (AGC_ATTACK_S * DSP_FS));
+    s.agc_mix = s.cur.agc ? 1.0f : 0.0f;
     s.agc_dec = 1.0f - expf(-1.0f / (AGC_DECAY_S * DSP_FS));
-    s.agc_smooth = 1.0f - expf(-1.0f / (AGC_SMOOTH_S * DSP_FS));
+    s.agc_fall = 1.0f - expf(-1.0f / (AGC_FALL_S * DSP_FS));
+    s.agc_rise = 1.0f - expf(-1.0f / (AGC_RISE_S * DSP_FS));
 }
 
 void dsp_set_params(const dsp_params_t *p)
@@ -316,7 +365,7 @@ void dsp_set_params(const dsp_params_t *p)
 static void take_pending(void)
 {
     unsigned want = s.pending_seq;
-    if (want == s.taken_seq)
+    if (want == s.taken_seq || s.xfade > 0 || s.glide > 0 || s.bp_xfade > 0)
         return;
     unsigned a = s.seq;
     if (a & 1)
@@ -340,11 +389,14 @@ void dsp_process(const float *in, float *out, size_t n)
         s.dc_x1 = x;
         s.dc_y1 = y;
 
-        if (s.bp_on)
-            for (int i = 0; i < BP_STAGES; i++)
-                y = biquad(&s.bp[i], y);
+        float f = bandpass(&s.bp[s.bp_cur], y);
+        if (s.bp_xfade > 0) {
+            float g = (float)s.bp_xfade / XFADE_N;     /* 1 -> 0 */
+            f = f * (1.0f - g) + bandpass(&s.bp[s.bp_cur ^ 1], y) * g;
+            s.bp_xfade--;
+        }
 
-        y = agc(y);
+        y = agc(f);
 
         float a = y, b = y;
         for (int i = 0; i < 4; i++) {
@@ -357,6 +409,13 @@ void dsp_process(const float *in, float *out, size_t n)
         s.pos = (s.pos + 1) & HIST_MASK;
         s.hist_i[s.pos] = ad;
         s.hist_q[s.pos] = b;
+
+        if (s.glide > 0) {
+            float g = (float)--s.glide / XFADE_N;      /* -> 0 */
+            float th = s.st.th + g * (s.glide_from - s.st.th);
+            s.st.rot_c = cosf(th);
+            s.st.rot_s = sinf(th);
+        }
 
         float l, r;
         stereo(&s.st, &l, &r);

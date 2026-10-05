@@ -48,7 +48,7 @@ typedef struct {
 /* Reset all state and apply the parameters. */
 void dsp_init(const dsp_params_t *p);
 
-/* Apply new parameters; a mode or width change is cross-faded. */
+/* Apply new parameters; every change is faded, none clicks. */
 void dsp_set_params(const dsp_params_t *p);
 
 /* Process n mono samples (about -1..1) into interleaved stereo out[2*n]. */

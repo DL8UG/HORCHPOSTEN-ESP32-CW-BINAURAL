@@ -241,6 +241,173 @@ static void test_xfade(void)
     CHECK(maxstep < 0.08f, "xfade: step of %.3f at the mode change", maxstep);
 }
 
+/* ---- parameter changes and keyed signals ---- */
+
+typedef struct {
+    size_t at;          /* sample index of the change */
+    dsp_params_t p;
+} change_t;
+
+/* run in[] in blocks of 64 like the firmware, applying the changes on the
+ * way; returns the stereo output */
+static float *run_changes(const dsp_params_t *p, const change_t *ch, size_t nch,
+                          const float *in, size_t n)
+{
+    const size_t blk = 64;
+    float *out = malloc(2 * n * sizeof(float));
+    dsp_init(p);
+    size_t c = 0;
+    for (size_t k = 0; k < n; k += blk) {
+        while (c < nch && ch[c].at <= k)
+            dsp_set_params(&ch[c++].p);
+        dsp_process(in + k, out + 2 * k, n - k < blk ? n - k : blk);
+    }
+    return out;
+}
+
+/* tone of amplitude amp from sample on to off, small noise everywhere */
+static float *make_tone(float f, float amp, size_t on, size_t off, size_t n)
+{
+    float *in = malloc(n * sizeof(float));
+    for (size_t k = 0; k < n; k++)
+        in[k] = 0.002f * noise()
+              + (k >= on && k < off ? amp * sinf(2.0f * (float)M_PI * f * k / DSP_FS) : 0.0f);
+    return in;
+}
+
+static float peak(const float *st, size_t from, size_t to)
+{
+    float mx = 0;
+    for (size_t k = 2 * from; k < 2 * to; k++)
+        mx = fmaxf(mx, fabsf(st[k]));
+    return mx;
+}
+
+/* largest step between neighbouring samples of either channel */
+static float max_step(const float *st, size_t from, size_t to)
+{
+    float mx = 0;
+    for (size_t k = from + 1; k < to; k++)
+        for (int c = 0; c < 2; c++)
+            mx = fmaxf(mx, fabsf(st[2 * k + c] - st[2 * (k - 1) + c]));
+    return mx;
+}
+
+/* smallest peak level of channel c over 2 ms windows: finds dropouts */
+static float min_level(const float *st, size_t from, size_t to, int c)
+{
+    const size_t w = DSP_FS / 500;
+    float mn = 1e9f;
+    for (size_t k = from; k + w <= to; k += w) {
+        float mx = 0;
+        for (size_t i = k; i < k + w; i++)
+            mx = fmaxf(mx, fabsf(st[2 * i + c]));
+        mn = fminf(mn, mx);
+    }
+    return mn;
+}
+
+static void test_agc_onset(void)
+{
+    /* the first element after a pause must not be louder than the rest */
+    const size_t n = 3 * DSP_FS, ms = DSP_FS / 1000;
+    dsp_params_t p = defaults();
+    p.mode = DSP_MODE_MONO;
+    p.filter = DSP_FILTER_500;
+    p.agc = true;
+
+    /* after 2 s of silence */
+    float *in = make_tone(600, 0.3f, 2 * DSP_FS, n, n);
+    float *st = run_changes(&p, NULL, 0, in, n);
+    float steady = peak(st, n - 200 * ms, n), first = peak(st, 2 * DSP_FS, 2 * DSP_FS + 50 * ms);
+    CHECK(first < 1.12f * steady, "agc: onset after silence %.3f, steady %.3f", first, steady);
+    free(in);
+    free(st);
+
+    /* after a word gap of 0.3 s */
+    in = make_tone(600, 0.3f, DSP_FS, n, n);
+    for (size_t k = 1500 * ms; k < 1800 * ms; k++)
+        in[k] = 0.002f * noise();
+    st = run_changes(&p, NULL, 0, in, n);
+    steady = peak(st, n - 200 * ms, n);
+    first = peak(st, 1800 * ms, 1850 * ms);
+    CHECK(first < 1.12f * steady, "agc: onset after word gap %.3f, steady %.3f", first, steady);
+    free(in);
+    free(st);
+
+    /* AGC on during silence, off while the signal starts, then on again */
+    change_t ch[2] = { { DSP_FS, p }, { 2 * DSP_FS, p } };
+    ch[0].p.agc = false;
+    in = make_tone(600, 0.3f, 1500 * ms, n, n);
+    st = run_changes(&p, ch, 2, in, n);
+    steady = peak(st, n - 200 * ms, n);
+    first = peak(st, 2 * DSP_FS, 2 * DSP_FS + 50 * ms);
+    CHECK(first < 1.12f * steady, "agc: switched on %.3f, steady %.3f", first, steady);
+    CHECK(max_step(st, DSP_FS / 10, n) < 0.08f, "agc: step of %.3f on off/on",
+          max_step(st, DSP_FS / 10, n));
+    free(in);
+    free(st);
+}
+
+static void test_pitch_change(void)
+{
+    /* pitch mode: a new centre pitch must neither click nor drop out */
+    const size_t n = DSP_FS / 2, at = n / 2, end = at + DSP_FS / 20;
+    static const struct { dsp_filter_t flt; int to; } cases[] = {
+        { DSP_FILTER_OFF, 1000 }, { DSP_FILTER_OFF, 625 }, { DSP_FILTER_500, 625 },
+        { DSP_FILTER_250, 650 },
+    };
+    float *in = make_tone(600, 0.3f, 0, n, n);
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+        dsp_params_t p = defaults();
+        p.width = DSP_WIDTH_WIDE;
+        p.filter = cases[c].flt;
+        change_t ch = { at, p };
+        ch.p.pitch_hz = cases[c].to;
+        float *st = run_changes(&p, &ch, 1, in, n);
+        int bw = dsp_filter_bw_hz(p.filter);
+        float step = max_step(st, DSP_FS / 10, n);
+        CHECK(step < 0.08f, "pitch 600->%d, filter %d: step of %.3f", cases[c].to, bw, step);
+        for (int lr = 0; lr < 2; lr++) {
+            float lv = min_level(st, at, end, lr);
+            CHECK(lv > 0.2f, "pitch 600->%d, filter %d: %s drops to %.3f", cases[c].to, bw,
+                  lr ? "right" : "left", lv);
+        }
+        free(st);
+    }
+    free(in);
+}
+
+static void test_filter_retune(void)
+{
+    /* a narrow filter moved away from a tone must not release a burst */
+    const size_t n = DSP_FS, at = n / 2;
+    dsp_params_t p = defaults();
+    p.mode = DSP_MODE_MONO;
+    p.filter = DSP_FILTER_100;
+    p.pitch_hz = 1000;
+    change_t ch = { at, p };
+    ch.p.pitch_hz = 300;
+    float *in = make_tone(700, 0.3f, 0, n, n);
+    float *st = run_changes(&p, &ch, 1, in, n);
+    float pk = peak(st, at, n);
+    CHECK(pk < 0.1f, "filter 100 moved 1000->300 Hz, tone 700 Hz: peak %.3f", pk);
+    free(st);
+    free(in);
+
+    /* switching the filter on and off must not click */
+    in = make_tone(600, 0.3f, 0, n, n);
+    p = defaults();
+    p.mode = DSP_MODE_MONO;
+    change_t onoff[2] = { { at, p }, { at + DSP_FS / 4, p } };
+    onoff[0].p.filter = DSP_FILTER_100;
+    st = run_changes(&p, onoff, 2, in, n);
+    float step = max_step(st, DSP_FS / 10, n);
+    CHECK(step < 0.08f, "filter off/on: step of %.3f", step);
+    free(st);
+    free(in);
+}
+
 static void test_auto_pitch(void)
 {
     const size_t n = DSP_FS * PITCH_CAPTURE_MS / 1000;
@@ -350,6 +517,9 @@ int main(int argc, char **argv)
     test_filter();
     test_agc();
     test_xfade();
+    test_agc_onset();
+    test_pitch_change();
+    test_filter_retune();
     test_auto_pitch();
     if (argc > 1 && strcmp(argv[1], "--wav") == 0)
         write_wavs();
