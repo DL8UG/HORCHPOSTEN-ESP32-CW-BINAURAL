@@ -62,7 +62,7 @@ static esp_err_t ac_init(void)
         { R_ADC_APC_CTRL, 0xbb00 },     /* both ADCs on, no microphone bias */
         { R_DAC_MXR_SRC, 0xcc00 },
         { R_DAC_DIG_CTRL, 0x8000 },
-        { R_DAC_VOL_CTRL, 0xa0a0 },
+        { R_DAC_VOL_CTRL, 0x0000 },     /* muted until the settings are applied */
         { R_OMIXER_SR, 0x0081 },
         { R_OMIXER_DACA_CTRL, 0xff80 }, /* headphone output path */
         { R_HPOUT_CTRL, 0xc3c1 },
@@ -72,7 +72,7 @@ static esp_err_t ac_init(void)
     for (size_t i = 0; i < sizeof(seq) / sizeof(seq[0]); i++)
         err |= codec_write16(seq[i].reg, seq[i].val);
     vTaskDelay(pdMS_TO_TICKS(100));
-    err |= codec_write16(R_HPOUT_CTRL, 0xfbc0);    /* headphone amplifier on */
+    err |= codec_write16(R_HPOUT_CTRL, 0xf800);    /* headphone amplifier on, volume 0 */
     return err ? ESP_FAIL : ESP_OK;
 }
 

@@ -81,9 +81,9 @@ static void apply_input_gain(void)
 static void apply_all(void)
 {
     dsp_set_params(&s_st.dsp);
-    codec_set_volume(s_st.volume);
-    codec_set_mute(s_st.mute);
     apply_input_gain();
+    codec_set_volume(s_st.volume);
+    codec_set_mute(s_st.mute);      /* last: the codecs start muted */
 }
 
 static void auto_pitch(void)
@@ -194,8 +194,8 @@ void app_main(void)
         fail_forever("codec init failed");
 
     dsp_init(&s_st.dsp);
+    apply_all();        /* volume and mute before the first sample */
     audio_start();
-    apply_all();
 
     ui_add_listener(log_listener);
     notify(UI_EV_CHANGED);
