@@ -27,7 +27,7 @@ jobs:
           target: esp32
           path: firmware
           command: idf.py build    # the action sets safe.directory itself
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware
           path: |
