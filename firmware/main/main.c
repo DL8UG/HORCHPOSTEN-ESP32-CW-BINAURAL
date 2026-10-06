@@ -108,6 +108,8 @@ static void auto_pitch(void)
 static bool handle(const button_event_t *ev)
 {
     dsp_params_t *d = &s_st.dsp;
+    bool dsp = true;        /* a signal chain setting changed */
+    bool save = true;
     switch (ev->key * 2 + ev->long_press) {
     case 0:     /* KEY1 short: mode */
         d->mode = (d->mode + 1) % DSP_MODE_COUNT;
@@ -128,8 +130,11 @@ static bool handle(const button_event_t *ev)
     case 4:     /* KEY3 short: pitch down */
     case 6:     /* KEY4 short: pitch up */
     {
+        /* clamped, so the limits can be reached from an auto pitch value
+         * off the 25 Hz grid */
         int p = d->pitch_hz + (ev->key == 2 ? -PITCH_STEP_HZ : PITCH_STEP_HZ);
-        if (p < DSP_PITCH_MIN || p > DSP_PITCH_MAX)
+        p = p < DSP_PITCH_MIN ? DSP_PITCH_MIN : p > DSP_PITCH_MAX ? DSP_PITCH_MAX : p;
+        if (p == d->pitch_hz)
             return false;
         d->pitch_hz = p;
         break;
@@ -149,24 +154,30 @@ static bool handle(const button_event_t *ev)
             return false;
         s_st.volume = v;
         codec_set_volume(v);
+        dsp = false;
         break;
     }
     case 9:     /* KEY5 long: input gain */
         s_st.in_gain_db = (s_st.in_gain_db + UI_GAIN_STEP_DB) % (UI_GAIN_MAX_DB + UI_GAIN_STEP_DB);
         apply_input_gain();
         led_blink(s_st.in_gain_db / UI_GAIN_STEP_DB + 1);
+        dsp = false;
         break;
     case 11:    /* KEY6 long: mute */
         s_st.mute = !s_st.mute;
         codec_set_mute(s_st.mute);
         led_blink(s_st.mute ? 2 : 1);
+        dsp = false;
+        save = false;       /* mute is not kept over a restart */
         break;
     default:
         return false;
     }
-    dsp_set_params(d);
+    if (dsp)
+        dsp_set_params(d);
     notify(UI_EV_CHANGED);
-    settings_changed(&s_st);
+    if (save)
+        settings_changed(&s_st);
     return true;
 }
 
