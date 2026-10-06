@@ -216,8 +216,11 @@ static void test_agc(void)
 
 static void test_xfade(void)
 {
-    /* a mode change must not jump: max step between samples stays small */
+    /* a mode change must not jump: max step between samples stays small.
+     * 650 Hz is off the centre pitch, and the 15 ms Haas delay turns it by
+     * 90 degrees, so the two modes give different outputs. */
     const size_t n = DSP_FS / 2, blk = 64;
+    const float f = 650;
     dsp_params_t p = defaults();
     float in[64], out[128];
     dsp_init(&p);
@@ -229,7 +232,7 @@ static void test_xfade(void)
             dsp_set_params(&p);
         }
         for (size_t i = 0; i < blk; i++, k++)
-            in[i] = 0.3f * sinf(2.0f * (float)M_PI * 600 * k / DSP_FS);
+            in[i] = 0.3f * sinf(2.0f * (float)M_PI * f * k / DSP_FS);
         dsp_process(in, out, blk);
         for (size_t i = 0; i < blk; i++) {
             if (b > 4) {
@@ -240,8 +243,8 @@ static void test_xfade(void)
             last_r = out[2 * i + 1];
         }
     }
-    /* a 600 Hz sine of 0.3 moves at most 0.3 * 2 pi 600 / 16000 = 0.071 */
-    CHECK(maxstep < 0.08f, "xfade: step of %.3f at the mode change", maxstep);
+    /* a 650 Hz sine of 0.3 moves at most 0.3 * 2 pi 650 / 16000 = 0.077 */
+    CHECK(maxstep < 0.085f, "xfade: step of %.3f at the mode change", maxstep);
 }
 
 /* ---- parameter changes and keyed signals ---- */
@@ -515,18 +518,23 @@ static void test_steps(void)
     /* every step on a clean tone: none may click (the listening example
      * hides a click in the noise of the pile-up). A hard switch can fall
      * where both sides happen to be equal, so the tone runs with four
-     * phases; the limit is the tone's own largest step plus 15 %. */
+     * phases; the limit is the tone's own largest step plus 15 %.
+     * The tone is off the centre pitch, so swap and width change the
+     * output, and off the AGC target, so AGC on/off does; 680 Hz is not a
+     * whole number of cycles in the Haas delay either. */
     dsp_params_t p = defaults();
     p.agc = true;
     change_t ch[NSTEPS];
     make_steps(&p, ch);
     float jump[NSTEPS] = { 0 }, own = 0;
-    float *in = make_tone(600, 0.3f, 0, STEPS_LEN + 16, STEPS_LEN + 16);
+    float *in = make_tone(430, 0.1f, 0, STEPS_LEN + 16, STEPS_LEN + 16);
     for (int ph = 0; ph < 4; ph++) {
-        float *st = run_changes(&p, ch, NSTEPS, in + 3 * ph, STEPS_LEN);   /* 40 deg apart */
+        float *st = run_changes(&p, ch, NSTEPS, in + 3 * ph, STEPS_LEN);   /* 46 deg apart */
         own = fmaxf(own, max_step(st, DSP_FS / 2, ch[0].at));
+        /* from the sample before the change: a hard switch lands between
+         * at - 1 and at */
         for (size_t i = 0; i < NSTEPS; i++)
-            jump[i] = fmaxf(jump[i], max_step(st, ch[i].at, ch[i].at + DSP_FS / 2));
+            jump[i] = fmaxf(jump[i], max_step(st, ch[i].at - 1, ch[i].at + DSP_FS / 2));
         free(st);
     }
     for (size_t i = 0; i < NSTEPS; i++)
