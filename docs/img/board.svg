@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="716" viewBox="0 74 1100 716" font-family="Liberation Sans, Arial, Helvetica, sans-serif">
+  <title>ESP32-Audio-Kit V2.2, top view, with the parts Horchposten uses</title>
+  <rect y="74" width="1100" height="716" fill="#ffffff"/>
+  <defs>
+    <marker id="dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5">
+      <circle cx="5" cy="5" r="4" fill="#333"/>
+    </marker>
+  </defs>
+
+  <!-- board -->
+  <rect x="170" y="110" width="660" height="530" rx="14" fill="#1f2328" stroke="#000" stroke-width="2"/>
+  <g fill="#d4a017" stroke="#8a6a00">
+    <circle cx="192" cy="132" r="9"/><circle cx="808" cy="132" r="9"/>
+    <circle cx="192" cy="618" r="9"/><circle cx="808" cy="618" r="9"/>
+  </g>
+
+  <!-- ESP32-A1S module with the antenna over the edge -->
+  <rect x="430" y="84" width="76" height="30" fill="#111" stroke="#555"/>
+  <rect x="394" y="112" width="146" height="178" rx="4" fill="#c9ccd1" stroke="#888"/>
+  <text x="467" y="196" font-size="16" text-anchor="middle" fill="#333" font-weight="bold">ESP32-A1S</text>
+  <text x="467" y="216" font-size="12" text-anchor="middle" fill="#333">module</text>
+
+  <!-- headers -->
+  <rect x="240" y="122" width="90" height="16" fill="#111" stroke="#666"/>
+  <text x="285" y="156" font-size="12" text-anchor="middle" fill="#bbb">JTAG</text>
+  <rect x="650" y="122" width="150" height="26" fill="#111" stroke="#666"/>
+  <text x="725" y="166" font-size="12" text-anchor="middle" fill="#bbb">GPIO header</text>
+
+  <!-- SD card -->
+  <rect x="178" y="166" width="78" height="80" rx="3" fill="#9aa0a6" stroke="#666"/>
+  <text x="217" y="210" font-size="13" text-anchor="middle" fill="#222">SD</text>
+
+  <!-- micro USB and battery on the left edge -->
+  <rect x="160" y="320" width="36" height="26" rx="3" fill="#b8bcc2" stroke="#555"/>
+  <rect x="160" y="421" width="36" height="26" rx="3" fill="#b8bcc2" stroke="#555"/>
+  <rect x="172" y="486" width="30" height="28" rx="2" fill="#f2f2f2" stroke="#888"/>
+
+  <!-- DIP switch with its legend -->
+  <rect x="366" y="336" width="108" height="46" rx="3" fill="#c0392b" stroke="#7b241c"/>
+  <g fill="#f5f5f5">
+    <rect x="374" y="343" width="14" height="32"/><rect x="394" y="343" width="14" height="32"/>
+    <rect x="414" y="343" width="14" height="32"/><rect x="434" y="343" width="14" height="32"/>
+    <rect x="454" y="343" width="14" height="32"/>
+  </g>
+  <g fill="#1f2328">
+    <rect x="376" y="345" width="10" height="12"/><rect x="396" y="345" width="10" height="12"/>
+  </g>
+  <g font-size="11" fill="#ddd" text-anchor="middle">
+    <text x="381" y="396">1</text><text x="401" y="396">2</text><text x="421" y="396">3</text>
+    <text x="441" y="396">4</text><text x="461" y="396">5</text>
+  </g>
+  <text x="372" y="330" font-size="11" fill="#ddd">ON ↑</text>
+  <g font-size="12" fill="#ddd">
+    <text x="490" y="346">1 IO13 → KEY2</text><text x="610" y="346" fill="#7dcea0" font-weight="bold">ON</text>
+    <text x="490" y="362">2 IO13 → DATA3</text><text x="610" y="362" fill="#7dcea0" font-weight="bold">ON</text>
+    <text x="490" y="378">3 IO15 → CMD</text>
+    <text x="490" y="394">4 IO13 → MTCK</text>
+    <text x="490" y="410">5 IO15 → MTDO</text>
+  </g>
+
+  <!-- LEDs -->
+  <circle cx="700" cy="186" r="5" fill="#2ecc71"/><circle cx="716" cy="186" r="5" fill="#2ecc71"/>
+  <text x="708" y="212" font-size="12" text-anchor="middle" fill="#7dcea0">LEDs, status = GPIO22</text>
+
+  <!-- microphones: remove -->
+  <g stroke="#e74c3c" stroke-width="3">
+    <circle cx="394" cy="482" r="15" fill="#000"/>
+    <line x1="380" y1="468" x2="408" y2="496"/><line x1="408" y1="468" x2="380" y2="496"/>
+    <circle cx="718" cy="482" r="15" fill="#000"/>
+    <line x1="704" y1="468" x2="732" y2="496"/><line x1="732" y1="468" x2="704" y2="496"/>
+  </g>
+  <text x="394" y="518" font-size="12" text-anchor="middle" fill="#ff8a80">MIC1</text>
+  <text x="718" y="518" font-size="12" text-anchor="middle" fill="#ff8a80">MIC4</text>
+
+  <!-- jacks and speaker connectors on the right edge -->
+  <rect x="780" y="174" width="62" height="34" rx="4" fill="#3a3a3a" stroke="#999"/>
+  <circle cx="842" cy="191" r="9" fill="#111" stroke="#999"/>
+  <rect x="780" y="236" width="62" height="34" rx="4" fill="#3a3a3a" stroke="#999"/>
+  <circle cx="842" cy="253" r="9" fill="#111" stroke="#999"/>
+  <rect x="798" y="324" width="30" height="28" rx="2" fill="#f2f2f2" stroke="#888"/>
+  <rect x="798" y="403" width="30" height="28" rx="2" fill="#f2f2f2" stroke="#888"/>
+
+  <!-- keys -->
+  <g fill="#d0d0d0" stroke="#666">
+    <rect x="215" y="591" width="24" height="24" rx="3"/><rect x="286" y="591" width="24" height="24" rx="3"/>
+  </g>
+  <g fill="#ffffff" stroke="#2c3e50" stroke-width="2">
+    <rect x="356" y="591" width="24" height="24" rx="3"/><rect x="429" y="591" width="24" height="24" rx="3"/>
+    <rect x="508" y="591" width="24" height="24" rx="3"/><rect x="580" y="591" width="24" height="24" rx="3"/>
+    <rect x="653" y="591" width="24" height="24" rx="3"/><rect x="732" y="591" width="24" height="24" rx="3"/>
+  </g>
+  <g font-size="12" fill="#ddd" text-anchor="middle">
+    <text x="227" y="584">RST</text><text x="298" y="584">BOOT</text>
+    <text x="368" y="584">KEY1</text><text x="441" y="584">KEY2</text><text x="520" y="584">KEY3</text>
+    <text x="592" y="584">KEY4</text><text x="665" y="584">KEY5</text><text x="744" y="584">KEY6</text>
+  </g>
+
+  <!-- key functions below the board: short press / long press -->
+  <g font-size="13" fill="#222" text-anchor="middle">
+    <text x="227" y="668">reset</text>
+    <text x="298" y="668" fill="#c0392b">don't press:</text>
+    <text x="298" y="684" fill="#c0392b">stops the</text>
+    <text x="298" y="700" fill="#c0392b">codec clock</text>
+    <text x="368" y="668" font-weight="bold">mode</text><text x="368" y="686">L/R swap</text>
+    <text x="441" y="668" font-weight="bold">filter</text><text x="441" y="686">AGC</text>
+    <text x="520" y="668" font-weight="bold">pitch −</text><text x="520" y="686">width</text>
+    <text x="592" y="668" font-weight="bold">pitch +</text><text x="592" y="686">auto pitch</text>
+    <text x="665" y="668" font-weight="bold">volume −</text><text x="665" y="686">input gain</text>
+    <text x="744" y="668" font-weight="bold">volume +</text><text x="744" y="686">mute</text>
+  </g>
+  <text x="556" y="716" font-size="12" fill="#555" text-anchor="middle">bold: short press · below: long press (0.6 s)</text>
+
+  <!-- callouts left -->
+  <g stroke="#333" stroke-width="1.2" fill="none">
+    <polyline points="150,333 140,333 140,434 150,434"/>
+    <line x1="150" y1="333" x2="160" y2="333" marker-end="url(#dot)"/>
+    <line x1="150" y1="434" x2="160" y2="434" marker-end="url(#dot)"/>
+    <line x1="140" y1="384" x2="130" y2="384"/>
+    <line x1="150" y1="500" x2="176" y2="500" marker-end="url(#dot)"/>
+  </g>
+  <g font-size="14" fill="#222" text-anchor="end">
+    <text x="126" y="380">2× micro USB</text>
+    <text x="126" y="396" font-size="12" fill="#555">UART and POWER,</text>
+    <text x="126" y="410" font-size="12" fill="#555">5 V on either; UART</text>
+    <text x="126" y="424" font-size="12" fill="#555">also for flashing</text>
+    <text x="146" y="505">battery</text>
+  </g>
+
+  <!-- callouts right -->
+  <g stroke="#333" stroke-width="1.2" fill="none" marker-end="url(#dot)">
+    <line x1="870" y1="191" x2="853" y2="191"/>
+    <line x1="870" y1="253" x2="853" y2="253"/>
+    <line x1="870" y1="338" x2="830" y2="338"/>
+    <line x1="870" y1="417" x2="830" y2="417"/>
+  </g>
+  <g font-size="14" fill="#222">
+    <text x="876" y="188" font-weight="bold">EARPHONES</text><text x="876" y="204" font-size="12" fill="#555">headphones</text>
+    <text x="876" y="250" font-weight="bold">LINE IN</text><text x="876" y="266" font-size="12" fill="#555">from the transceiver (tip = left)</text>
+    <text x="876" y="343">ROUT</text>
+    <text x="876" y="422">LOUT</text>
+    <text x="876" y="372" font-size="12" fill="#555">speaker outputs,</text>
+    <text x="876" y="388" font-size="12" fill="#555">not used (off)</text>
+  </g>
+
+  <!-- callouts: mics -->
+  <g font-size="13" fill="#c0392b">
+    <text x="20" y="560" font-weight="bold">MIC1, MIC4: remove</text>
+    <text x="20" y="576">they share the line input</text>
+    <text x="20" y="592">(see the text)</text>
+  </g>
+
+  <text x="550" y="772" font-size="12" fill="#777" text-anchor="middle">ESP32-Audio-Kit V2.2 (ES8388), top view, keys towards you. Drawn after product photos, not to scale.</text>
+</svg>

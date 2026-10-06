@@ -52,6 +52,8 @@ stands out of the noise.
 
 The speaker outputs of the board stay off.
 
+![ESP32-Audio-Kit V2.2 from above: keys RST, BOOT, KEY1 to KEY6 along the front edge, EARPHONES and LINE IN on the right, micro USB on the left, DIP switch in the middle, the two microphones marked for removal](docs/img/board.svg)
+
 **Remove the on-board microphones.** They share the codec input with the
 LINE IN jack, and a plug in the jack does not cut them off: on a V2.2
 board marked A618, tapping a microphone reached −8 dBFS, louder than a
