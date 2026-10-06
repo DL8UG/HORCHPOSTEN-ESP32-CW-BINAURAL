@@ -8,4 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Project skeleton.
+- Signal chain: DC block, CW band pass (off/500/250/100 Hz), AGC, Hilbert
+  pair, stereo modes binaural by pitch, binaural 90°, Haas and mono, soft
+  limiter. Every change of mode, width, filter, pitch and AGC is faded,
+  without clicks.
+- Auto pitch on the strongest tone (300–1000 Hz).
+- Firmware for the ESP32-Audio-Kit: codec detection ES8388 / AC101, six
+  keys with short and long press, status LED, settings kept in flash.
+- Host tests of the signal chain with WAV output.
+- Parametric 3D printable enclosure (OpenSCAD).
+- CI: host tests, firmware build, documentation check; release workflow.
