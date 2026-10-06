@@ -56,6 +56,9 @@ screw_head_d = 6.2;        // counterbore for M3 button head screws (ISO 7380:
 screw_head_h = 1.8;        // head 5.7 x 1.65 mm), sunk a little below the top
 insert_d = 4.0;            // M3 heat-set insert (or 2.6 for self-tapping screws)
 standoff_d = 7;
+foot_d = 10.5;             // recesses for self-adhesive rubber feet (10 mm)
+foot_h = 0.8;
+foot_inset = 14;           // foot centre from the outer edges; clear of the standoffs
 key_hole_d = 6.6;          // lid guide for the plungers
 plunger_d = 6.0;           // 0.3 mm play on each side in the guide
 plunger_flange_d = 8.6;
@@ -77,6 +80,12 @@ pcb_z = floor_t + under_h;                 // PCB bottom
 pcb_top = pcb_z + pcb_t;
 shell_h = pcb_top + over_h;                // bottom shell height = lid underside
 off = [wall + clear, wall + clear];        // PCB origin in shell coordinates
+feet = [for (x = [foot_inset, outer[0] - foot_inset], y = [foot_inset, outer[1] - foot_inset]) [x, y]];
+
+// a foot recess under a standoff would leave almost no floor under the insert
+for (f = feet, h = holes)
+    assert(norm(f - (off + h)) >= (foot_d + standoff_d) / 2 + 0.5,
+           str("foot at ", f, " runs into the standoff at ", off + h, ": raise foot_inset"));
 
 $fn = 48;
 
@@ -145,8 +154,7 @@ module bottom() {
         for (i = [0:5]) translate([outer[0] / 2 - 25 + i * 10, outer[1] / 2 - 15, -1])
             hull() for (y = [0, 30]) translate([0, y, 0]) cylinder(d = 2.4, h = floor_t + 2);
         // recesses for self-adhesive rubber feet
-        for (x = [10, outer[0] - 10], y = [10, outer[1] - 10])
-            translate([x, y, -0.01]) cylinder(d = 10.5, h = 0.8);
+        for (f = feet) translate([f[0], f[1], -0.01]) cylinder(d = foot_d, h = foot_h);
     }
 }
 
