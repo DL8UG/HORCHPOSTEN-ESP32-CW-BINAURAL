@@ -78,10 +78,14 @@ and the SCAD source to each GitHub release.
 
 1. Press the heat-set inserts into the standoffs.
 2. Put the board in, jacks first through the side openings.
-3. Drop the plungers into the lid from below (flange inside), put the lid
-   on and fasten it with the four screws. Don't overtighten: the lid tubes
-   clamp the PCB. They are `tube_press` (0.2 mm) longer than the room above
-   the board; if a gap stays at the rim, lower that value.
+3. Stand the plungers on the keys, flange down, and lower the lid over
+   them so that each slides into its guide. (Dropped into the lid from
+   below, they fall out when it is turned over; if they won't stand,
+   hold them in the lid with a strip of tape across its top face and
+   pull it off at the end.) Fasten the lid with the four screws. Don't
+   overtighten: the lid tubes clamp the PCB. They are `tube_press`
+   (0.2 mm) longer than the room above the board; if a gap stays at the
+   rim, lower that value.
 4. Rubber feet into the recesses under the bottom.
 
 ## Display window
