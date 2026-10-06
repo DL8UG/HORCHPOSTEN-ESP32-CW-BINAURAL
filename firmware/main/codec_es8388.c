@@ -41,7 +41,7 @@
 #define ADC_INPUT_LIN2_RIN2  0x50
 #define DAC_OUTPUT_ALL       0x3c
 #define DAC_SOFT_RAMP        0x60    /* 0.5 dB per 32 LRCK: 1.5 dB in 6 ms */
-#define OUT_VOL_MIN          3       /* -40.5 dB at volume 0 */
+#define OUT_VOL              33      /* +4.5 dB, fixed; the volume is set in the DAC */
 
 static esp_err_t es_init(void)
 {
@@ -62,12 +62,12 @@ static esp_err_t es_init(void)
         { R_DACCONTROL20, 0x90 },   /* right DAC to right mixer only */
         { R_DACCONTROL21, 0x80 },   /* ADC and DAC share LRCK */
         { R_DACCONTROL23, 0x00 },
-        { R_DACCONTROL4, 0x00 },    /* DAC digital 0 dB, fixed */
+        { R_DACCONTROL4, 0x00 },    /* DAC digital 0 dB, set later */
         { R_DACCONTROL5, 0x00 },
-        { R_LOUT1VOL, 0 },          /* -45 dB until the volume is set */
-        { R_ROUT1VOL, 0 },
-        { R_LOUT2VOL, 0 },
-        { R_ROUT2VOL, 0 },
+        { R_LOUT1VOL, OUT_VOL },
+        { R_ROUT1VOL, OUT_VOL },
+        { R_LOUT2VOL, OUT_VOL },
+        { R_ROUT2VOL, OUT_VOL },
         { R_DACPOWER, DAC_OUTPUT_ALL },
         { R_ADCPOWER, 0xff },
         { R_ADCCONTROL1, 0x00 },    /* PGA 0 dB, set later */
@@ -92,19 +92,13 @@ static esp_err_t es_init(void)
     return err ? ESP_FAIL : ESP_OK;
 }
 
-/*
- * The volume is set in the output stage: 30 -> +4.5 dB, 0 -> -40.5 dB in
- * 1.5 dB steps. The analog noise of the codec comes before this stage,
- * so it goes down with the volume. (With the stage fixed at +4.5 dB and
- * the volume in the DAC, the hiss stayed at full level at any volume,
- * measured on the Audio Kit V2.2.) The stage has no ramp: a hard step.
- */
+/* the DAC digital volume ramps (soft ramp), the output stage would jump:
+ * 30 -> +4.5 dB, 0 -> -40.5 dB in 1.5 dB steps */
 static esp_err_t es_set_volume(int vol)
 {
-    uint8_t v = (uint8_t)(OUT_VOL_MIN + vol);
-    esp_err_t err = ESP_OK;
-    for (uint8_t r = R_LOUT1VOL; r <= R_ROUT2VOL; r++)
-        err |= codec_write8(r, v);
+    uint8_t att = (uint8_t)((CODEC_VOL_MAX - vol) * 3);     /* 0.5 dB steps */
+    esp_err_t err = codec_write8(R_DACCONTROL4, att);
+    err |= codec_write8(R_DACCONTROL5, att);
     return err ? ESP_FAIL : ESP_OK;
 }
 
