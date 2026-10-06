@@ -50,9 +50,10 @@ jobs:
           cp $b/partition_table/partition-table.bin dist/partition-table.bin
           (cd case && zip -q ../dist/horchposten-case-$tag.zip README.md horchposten_case.scad stl/*.stl)
           cp LICENSE dist/
-          # notes: the CHANGELOG section of this version
+          # notes: the CHANGELOG section of this version, up to the next
+          # section or the link references at the end
           v=${tag#v}
-          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ || /^\[[^]]+\]: / {on=0} on' CHANGELOG.md > notes.md
           test -s notes.md || echo "See CHANGELOG.md." > notes.md
 
       - name: Draft release
