@@ -59,20 +59,23 @@ bool settings_load(ui_state_t *st)
         ESP_LOGI(TAG, "no stored settings, defaults");
         return false;
     }
-    *st = s.st;
-    /* range checks: a damaged entry must not give silly values */
+    /* range checks: a damaged entry must not give silly values, a bad
+     * field keeps its default; mute is never stored, because silence with
+     * no sign of it after a restart looks like a fault */
+    st->dsp = s.st.dsp;
     dsp_params_sanitize(&st->dsp);
-    if (st->volume < 0 || st->volume > CODEC_VOL_MAX) st->volume = 20;
-    if (st->in_gain_db < 0 || st->in_gain_db > UI_GAIN_MAX_DB || st->in_gain_db % UI_GAIN_STEP_DB)
-        st->in_gain_db = 0;
-    /* never start muted: silence with no sign of it looks like a fault */
-    st->mute = false;
+    if (s.st.volume >= 0 && s.st.volume <= CODEC_VOL_MAX)
+        st->volume = s.st.volume;
+    if (s.st.in_gain_db >= 0 && s.st.in_gain_db <= UI_GAIN_MAX_DB
+        && s.st.in_gain_db % UI_GAIN_STEP_DB == 0)
+        st->in_gain_db = s.st.in_gain_db;
     return true;
 }
 
 void settings_changed(const ui_state_t *st)
 {
     s_pending = *st;
+    s_pending.mute = false;
     s_due = esp_timer_get_time() + SAVE_DELAY_US;
 }
 
