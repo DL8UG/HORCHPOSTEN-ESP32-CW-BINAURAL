@@ -78,6 +78,9 @@ and the SCAD source to each GitHub release.
 - `bottom` stands on its floor, `lid` comes out upside down (top face on
   the bed, the lettering is engraved into it), `buttons` stand on their
   flanges.
+- Print `buttons` in a different colour from the lid (they are a separate
+  part anyway), so the six keys stand out; e.g. a light grey lid with
+  orange keys, as in the pictures.
 - Contrasting lettering: rub acrylic paint into the engraving and wipe
   the surface clean.
 
