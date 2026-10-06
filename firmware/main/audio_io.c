@@ -52,8 +52,10 @@ esp_err_t audio_io_init(const board_i2s_pins_t *pins)
             .din = BOARD_I2S_DIN,
         },
     };
-    /* APLL gives an exact MCLK of 256 * 16 kHz for the codec */
-    std.clk_cfg.clk_src = I2S_CLK_SRC_APLL;
+    /* Not the APLL: with MCLK from the APLL, the ES8388 DAC of the Audio
+     * Kit V2.2 (A618) hissed loudly as soon as it got any non-zero data;
+     * the default PLL clock is clean (heard on the board). */
+    std.clk_cfg.clk_src = I2S_CLK_SRC_DEFAULT;
     std.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_tx, &std));
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_rx, &std));
