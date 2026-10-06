@@ -149,6 +149,17 @@ static float clampf(float v, float lo, float hi)
     return v < lo ? lo : v > hi ? hi : v;
 }
 
+/* a bool from storage may hold any byte, and reading one that is neither
+ * 0 nor 1 as a bool is undefined: look at the byte */
+static void sanitize_bool(bool *b, bool def)
+{
+    _Static_assert(sizeof(bool) == 1, "bool is one byte");
+    unsigned char v;
+    memcpy(&v, b, 1);
+    if (v > 1)
+        *b = def;
+}
+
 void dsp_params_sanitize(dsp_params_t *p)
 {
     if ((unsigned)p->mode >= DSP_MODE_COUNT) p->mode = DSP_MODE_PITCH;
@@ -156,6 +167,8 @@ void dsp_params_sanitize(dsp_params_t *p)
     if ((unsigned)p->width >= DSP_WIDTH_COUNT) p->width = DSP_WIDTH_MEDIUM;
     if (p->pitch_hz < DSP_PITCH_MIN) p->pitch_hz = DSP_PITCH_MIN;
     if (p->pitch_hz > DSP_PITCH_MAX) p->pitch_hz = DSP_PITCH_MAX;
+    sanitize_bool(&p->agc, true);
+    sanitize_bool(&p->swap, false);
 }
 
 /*

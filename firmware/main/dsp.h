@@ -51,7 +51,8 @@ void dsp_init(const dsp_params_t *p);
 /* Apply new parameters; every change is faded, none clicks. */
 void dsp_set_params(const dsp_params_t *p);
 
-/* Bring every field into its range (invalid enum -> default, pitch clamped). */
+/* Bring every field into its range (invalid enum or bool -> default,
+ * pitch clamped). */
 void dsp_params_sanitize(dsp_params_t *p);
 
 /* Process n mono samples (about -1..1) into interleaved stereo out[2*n]. */

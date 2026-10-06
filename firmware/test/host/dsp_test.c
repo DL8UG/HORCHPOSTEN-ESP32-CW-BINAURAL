@@ -214,6 +214,22 @@ static void test_agc(void)
     CHECK(mx <= 1.0f, "agc: peak %.3f above full scale", mx);
 }
 
+static void test_sanitize(void)
+{
+    /* a damaged stored entry: every field out of range */
+    dsp_params_t p;
+    memset(&p, 0x02, sizeof(p));
+    p.pitch_hz = 5000;
+    dsp_params_sanitize(&p);
+    unsigned char agc, swap;
+    memcpy(&agc, &p.agc, 1);
+    memcpy(&swap, &p.swap, 1);
+    CHECK(p.mode == DSP_MODE_PITCH && p.filter == DSP_FILTER_OFF && p.width == DSP_WIDTH_MEDIUM
+          && p.pitch_hz == DSP_PITCH_MAX && agc == 1 && swap == 0,
+          "sanitize: mode %d filter %d width %d pitch %d agc %u swap %u", p.mode, p.filter,
+          p.width, p.pitch_hz, agc, swap);
+}
+
 static void test_xfade(void)
 {
     /* a mode change must not jump: max step between samples stays small.
@@ -844,6 +860,7 @@ int main(int argc, char **argv)
     test_haas_mono();
     test_filter();
     test_agc();
+    test_sanitize();
     test_xfade();
     test_agc_onset();
     test_pitch_change();
