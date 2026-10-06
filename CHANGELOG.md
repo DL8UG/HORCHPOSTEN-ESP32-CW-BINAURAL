@@ -15,6 +15,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Auto pitch on the strongest tone (300–1000 Hz).
 - Firmware for the ESP32-Audio-Kit: codec detection ES8388 / AC101, six
   keys with short and long press, status LED, settings kept in flash.
+  Volume, input gain and mute are faded too, and so is the output while
+  the settings are written to flash.
 - Host tests of the signal chain with WAV output.
 - Parametric 3D printable enclosure (OpenSCAD).
 - CI: host tests, firmware build, documentation check; release workflow.

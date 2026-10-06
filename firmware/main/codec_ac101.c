@@ -76,6 +76,7 @@ static esp_err_t ac_init(void)
     return err ? ESP_FAIL : ESP_OK;
 }
 
+/* a hard step of about 1.5 dB per press; zero cross not known for the AC101 */
 static esp_err_t ac_set_volume(int vol)
 {
     uint16_t r;

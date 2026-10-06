@@ -25,7 +25,7 @@
 #define R_ADCCONTROL9   0x11    /* ADC digital volume R */
 #define R_DACCONTROL1   0x17    /* format */
 #define R_DACCONTROL2   0x18    /* fs ratio */
-#define R_DACCONTROL3   0x19    /* bit 2: mute */
+#define R_DACCONTROL3   0x19    /* bits 7:6 ramp rate, 5 soft ramp, 2 mute */
 #define R_DACCONTROL4   0x1a    /* DAC digital volume L */
 #define R_DACCONTROL5   0x1b    /* DAC digital volume R */
 #define R_DACCONTROL16  0x26
@@ -33,18 +33,20 @@
 #define R_DACCONTROL20  0x2a
 #define R_DACCONTROL21  0x2b
 #define R_DACCONTROL23  0x2d
-#define R_LOUT1VOL      0x2e    /* 0 = -45 dB .. 30 = 0 dB .. 33 = +4.5 dB */
+#define R_LOUT1VOL      0x2e    /* 0 = -45 dB .. 30 = 0 dB .. 33 = +4.5 dB, no ramp */
 #define R_ROUT1VOL      0x2f
 #define R_LOUT2VOL      0x30
 #define R_ROUT2VOL      0x31
 
 #define ADC_INPUT_LIN2_RIN2  0x50
 #define DAC_OUTPUT_ALL       0x3c
+#define DAC_SOFT_RAMP        0x60    /* 0.5 dB per 32 LRCK: 1.5 dB in 6 ms */
+#define OUT_VOL              33      /* +4.5 dB, fixed; the volume is set in the DAC */
 
 static esp_err_t es_init(void)
 {
     static const uint8_t seq[][2] = {
-        { R_DACCONTROL3, 0x04 },    /* mute while setting up */
+        { R_DACCONTROL3, DAC_SOFT_RAMP | 0x04 },    /* mute while setting up */
         { R_CONTROL2, 0x50 },
         { R_CHIPPOWER, 0x00 },
         { 0x35, 0xa0 },             /* internal DLL off: better at low fs */
@@ -60,8 +62,12 @@ static esp_err_t es_init(void)
         { R_DACCONTROL20, 0x90 },   /* right DAC to right mixer only */
         { R_DACCONTROL21, 0x80 },   /* ADC and DAC share LRCK */
         { R_DACCONTROL23, 0x00 },
-        { R_DACCONTROL4, 0x00 },    /* DAC digital 0 dB */
+        { R_DACCONTROL4, 0x00 },    /* DAC digital 0 dB, set later */
         { R_DACCONTROL5, 0x00 },
+        { R_LOUT1VOL, OUT_VOL },
+        { R_ROUT1VOL, OUT_VOL },
+        { R_LOUT2VOL, OUT_VOL },
+        { R_ROUT2VOL, OUT_VOL },
         { R_DACPOWER, DAC_OUTPUT_ALL },
         { R_ADCPOWER, 0xff },
         { R_ADCCONTROL1, 0x00 },    /* PGA 0 dB, set later */
@@ -86,13 +92,13 @@ static esp_err_t es_init(void)
     return err ? ESP_FAIL : ESP_OK;
 }
 
+/* the DAC digital volume ramps (soft ramp), the output stage would jump:
+ * 30 -> +4.5 dB, 0 -> -40.5 dB in 1.5 dB steps */
 static esp_err_t es_set_volume(int vol)
 {
-    uint8_t v = (uint8_t)(vol + 3);     /* 30 -> +4.5 dB, 0 -> -40.5 dB */
-    esp_err_t err = codec_write8(R_LOUT1VOL, v);
-    err |= codec_write8(R_ROUT1VOL, v);
-    err |= codec_write8(R_LOUT2VOL, v);
-    err |= codec_write8(R_ROUT2VOL, v);
+    uint8_t att = (uint8_t)((CODEC_VOL_MAX - vol) * 3);     /* 0.5 dB steps */
+    esp_err_t err = codec_write8(R_DACCONTROL4, att);
+    err |= codec_write8(R_DACCONTROL5, att);
     return err ? ESP_FAIL : ESP_OK;
 }
 

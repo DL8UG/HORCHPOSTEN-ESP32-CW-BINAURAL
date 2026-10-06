@@ -78,12 +78,49 @@ static void apply_input_gain(void)
         audio_set_digital_gain(s_st.in_gain_db);
 }
 
+/* the input gain jumps up to 24 dB: hide the step under the fader, and
+ * wait until the samples in the DMA buffers have the new gain */
+static void change_input_gain(void)
+{
+    audio_duck(true);
+    audio_wait_fader();
+    apply_input_gain();
+    vTaskDelay(pdMS_TO_TICKS(30));
+    audio_duck(false);
+}
+
+/* fade first, then the codec mute (a hard step on the AC101) */
+static void set_mute(bool mute)
+{
+    if (mute) {
+        audio_set_mute(true);
+        audio_wait_fader();
+        codec_set_mute(true);
+    } else {
+        codec_set_mute(false);
+        audio_set_mute(false);
+    }
+}
+
+/* before audio_start: nothing plays yet, the fader starts at 0 */
 static void apply_all(void)
 {
     dsp_set_params(&s_st.dsp);
     apply_input_gain();
     codec_set_volume(s_st.volume);
+    audio_set_mute(s_st.mute);
     codec_set_mute(s_st.mute);      /* last: the codecs start muted */
+}
+
+/* the flash write stalls the audio task (cache off): fade out around it */
+static void save_settings(void)
+{
+    if (!settings_due())
+        return;
+    audio_duck(true);
+    audio_wait_fader();
+    settings_save();
+    audio_duck(false);
 }
 
 static void auto_pitch(void)
@@ -159,13 +196,13 @@ static bool handle(const button_event_t *ev)
     }
     case 9:     /* KEY5 long: input gain */
         s_st.in_gain_db = (s_st.in_gain_db + UI_GAIN_STEP_DB) % (UI_GAIN_MAX_DB + UI_GAIN_STEP_DB);
-        apply_input_gain();
+        change_input_gain();
         led_blink(s_st.in_gain_db / UI_GAIN_STEP_DB + 1);
         dsp = false;
         break;
     case 11:    /* KEY6 long: mute */
         s_st.mute = !s_st.mute;
-        codec_set_mute(s_st.mute);
+        set_mute(s_st.mute);
         led_blink(s_st.mute ? 2 : 1);
         dsp = false;
         save = false;       /* mute is not kept over a restart */
@@ -217,6 +254,6 @@ void app_main(void)
         button_event_t ev;
         if (buttons_get(&ev, UI_TICK_MS) && !handle(&ev))
             led_error();
-        settings_tick();
+        save_settings();
     }
 }

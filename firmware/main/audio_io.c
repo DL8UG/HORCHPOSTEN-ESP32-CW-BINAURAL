@@ -11,9 +11,17 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
+#define DMA_DESC    4
+#define FADE_N      (DSP_FS / 100)                      /* 10 ms */
+#define DMA_MS      (DMA_DESC * AUDIO_BLOCK * 1000 / DSP_FS)
+
 static const char *TAG = "audio";
 static i2s_chan_handle_t s_tx, s_rx;
 static volatile float s_gain = 1.0f;
+
+/* output fader: set by the UI task, s_level moved by the audio task */
+static volatile bool s_mute, s_duck;
+static volatile float s_level;
 
 /* capture for the auto pitch */
 static float *volatile s_cap_buf;
@@ -23,7 +31,7 @@ static SemaphoreHandle_t s_cap_done;
 esp_err_t audio_io_init(const board_i2s_pins_t *pins)
 {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num = 4;
+    chan_cfg.dma_desc_num = DMA_DESC;
     chan_cfg.dma_frame_num = AUDIO_BLOCK;
     chan_cfg.auto_clear_after_cb = true;
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &s_tx, &s_rx));
@@ -53,6 +61,25 @@ esp_err_t audio_io_init(const board_i2s_pins_t *pins)
 void audio_set_digital_gain(int db)
 {
     s_gain = powf(10.0f, db / 20.0f);
+}
+
+void audio_set_mute(bool mute)
+{
+    s_mute = mute;
+}
+
+void audio_duck(bool duck)
+{
+    s_duck = duck;
+}
+
+void audio_wait_fader(void)
+{
+    float target = s_mute || s_duck ? 0.0f : 1.0f;
+    for (int ms = 0; s_level != target && ms < 100; ms++)
+        vTaskDelay(pdMS_TO_TICKS(1));
+    /* the blocks already in the DMA buffers still have to play */
+    vTaskDelay(pdMS_TO_TICKS(DMA_MS + 4));
 }
 
 bool audio_capture(float *buf, size_t n, int timeout_ms)
@@ -102,8 +129,15 @@ static void audio_task(void *arg)
         }
 
         dsp_process(in, out, AUDIO_BLOCK);
-        for (int i = 0; i < 2 * AUDIO_BLOCK; i++)
-            tx[i] = (int16_t)lrintf(out[i] * 32767.0f);
+        float target = s_mute || s_duck ? 0.0f : 1.0f, lv = s_level;
+        for (int i = 0; i < AUDIO_BLOCK; i++) {
+            if (lv != target)
+                lv = target > lv ? fminf(lv + 1.0f / FADE_N, target)
+                                 : fmaxf(lv - 1.0f / FADE_N, target);
+            tx[2 * i] = (int16_t)lrintf(out[2 * i] * lv * 32767.0f);
+            tx[2 * i + 1] = (int16_t)lrintf(out[2 * i + 1] * lv * 32767.0f);
+        }
+        s_level = lv;
         size_t put = 0;
         i2s_channel_write(s_tx, tx, sizeof(tx), &put, portMAX_DELAY);
     }

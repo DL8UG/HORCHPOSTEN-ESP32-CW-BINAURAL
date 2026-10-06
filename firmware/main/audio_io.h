@@ -21,6 +21,17 @@ void audio_start(void);
 void audio_set_digital_gain(int db);
 
 /*
+ * Output fader, 10 ms ramps: the output is up only while neither mute
+ * nor duck is set. Duck hides a hard step elsewhere (input gain, a flash
+ * write). The fader starts at 0, so the output fades in at start.
+ */
+void audio_set_mute(bool mute);
+void audio_duck(bool duck);
+
+/* wait until the fader has reached its target at the jack (after audio_start) */
+void audio_wait_fader(void);
+
+/*
  * Record n raw input samples for the auto pitch; blocks up to
  * timeout_ms. Returns false on timeout.
  */

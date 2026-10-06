@@ -79,10 +79,13 @@ void settings_changed(const ui_state_t *st)
     s_due = esp_timer_get_time() + SAVE_DELAY_US;
 }
 
-void settings_tick(void)
+bool settings_due(void)
 {
-    if (!s_due || esp_timer_get_time() < s_due)
-        return;
+    return s_due && esp_timer_get_time() >= s_due;
+}
+
+void settings_save(void)
+{
     s_due = 0;
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK)
