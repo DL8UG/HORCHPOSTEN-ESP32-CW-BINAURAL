@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Check the Markdown documentation of the repository.
 
-- every local link points to an existing file, and its #anchor to an existing
-  heading (anchors as GitHub makes them)
+- every local link points to an existing file in the repository, and its
+  #anchor to an existing heading (anchors as GitHub makes them); inline
+  links and images (also with a title or a <target>), reference
+  definitions and HTML <a href> / <img src>; a leading / is the repository
+  root, as on GitHub
 - a "## Contents" list names every level 2 and 3 heading after it, in order
 
 Run from anywhere: python3 tools/check_doc_links.py
@@ -11,14 +14,19 @@ Exit status 1 and one line per problem if something is wrong.
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
 # folders not checked (generated or third-party files)
 SKIP = [ROOT / "firmware" / "build", ROOT / "firmware" / "managed_components"]
 
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)\)|!\[[^\]]*\]\(([^)\s]+)\)")
-FENCE = re.compile(r"^\s*(```|~~~)")
+# [text](target "title") and ![alt](<tar get>): the target is group 1 or 2
+LINK = re.compile(r"!?\[[^\]]*\]\(\s*(?:<([^>\n]*)>|([^)\s]+))"
+                  r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)")
+REF_DEF = re.compile(r"^ {0,3}\[[^\]]+\]:\s*(?:<([^>]*)>|(\S+))", re.M)
+HTML = re.compile(r"<(?:a|img)\b[^>]*?\s(?:href|src)\s*=\s*[\"']([^\"']+)[\"']", re.I)
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
 def slug(text):
@@ -32,12 +40,17 @@ def slug(text):
 def parse(path):
     """Headings (level, text, anchor, line) and links (target, line)."""
     headings, text, seen = [], [], {}
-    in_fence = False
+    fence = None    # the opening fence while inside a code block
     for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if FENCE.match(line):
-            in_fence = not in_fence
+        m = FENCE.match(line)
+        if fence is None and m:
+            fence = m.group(1)
             line = ""
-        if in_fence:
+        elif fence is not None:
+            # closed by the same character, at least as long, nothing after
+            if (m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+                    and not m.group(2).strip()):
+                fence = None
             line = ""
         m = HEADING.match(line)
         if m:
@@ -48,8 +61,12 @@ def parse(path):
         text.append(re.sub(r"`[^`]*`", "", line))
     # links over the whole text: a link text may run over two lines
     text = "\n".join(text)
-    links = [(m.group(2) or m.group(3), text.count("\n", 0, m.start()) + 1)
-             for m in LINK.finditer(text)]
+    links = []
+    for pattern in (LINK, REF_DEF, HTML):
+        for m in pattern.finditer(text):
+            target = next(g for g in m.groups() if g is not None)
+            links.append((target, text.count("\n", 0, m.start()) + 1))
+    links.sort(key=lambda link: link[1])
     return headings, links
 
 
@@ -58,9 +75,17 @@ def check_links(path, links, anchors_of, problems):
         if re.match(r"[a-z]+:", target):
             continue  # http:, https:, mailto:
         file_part, _, anchor = target.partition("#")
-        dest = (path.parent / file_part).resolve() if file_part else path
+        file_part = unquote(file_part)
+        if not file_part:
+            dest = path
+        elif file_part.startswith("/"):
+            dest = (ROOT / file_part.lstrip("/")).resolve()
+        else:
+            dest = (path.parent / file_part).resolve()
         where = f"{path.relative_to(ROOT)}:{no}"
-        if not dest.exists():
+        if dest != ROOT and ROOT not in dest.parents:
+            problems.append(f"{where}: link leaves the repository: {target}")
+        elif not dest.exists():
             problems.append(f"{where}: missing file {target}")
         elif anchor:
             if dest.suffix != ".md":
