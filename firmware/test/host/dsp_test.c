@@ -418,7 +418,8 @@ static void test_auto_pitch(void)
 {
     const size_t n = DSP_FS * PITCH_CAPTURE_MS / 1000;
     float *buf = malloc(n * sizeof(float));
-    const float tones[] = { 312, 487, 600, 733, 958 };
+    rng = 12345;    /* the noise does not depend on the tests before */
+    const float tones[] = { 300, 312, 487, 600, 733, 958, 1000 };
     for (size_t t = 0; t < sizeof(tones) / sizeof(tones[0]); t++) {
         for (size_t k = 0; k < n; k++)
             buf[k] = 0.05f * sinf(2.0f * (float)M_PI * tones[t] * k / DSP_FS)
@@ -435,6 +436,20 @@ static void test_auto_pitch(void)
     CHECK(!pitch_detect(buf, n, DSP_FS, DSP_PITCH_MIN, DSP_PITCH_MAX, &hz),
           "auto pitch: found %.1f Hz in pure noise", hz);
 
+    /* the strongest tone just outside the range: no result, not the edge */
+    const float outside[] = { 285, 295, 1005, 1015 };
+    for (size_t t = 0; t < sizeof(outside) / sizeof(outside[0]); t++) {
+        int found = 0;
+        for (int r = 0; r < 50; r++) {
+            for (size_t k = 0; k < n; k++)
+                buf[k] = 0.1f * sinf(2.0f * (float)M_PI * outside[t] * k / DSP_FS)
+                       + 0.001f * noise();
+            found += pitch_detect(buf, n, DSP_FS, DSP_PITCH_MIN, DSP_PITCH_MAX, &hz);
+        }
+        CHECK(found == 0, "auto pitch: tone at %.0f Hz (out of range) taken in %d of 50 runs",
+              outside[t], found);
+    }
+
     /* white noise, and behind the transceiver's own CW filter, where most
      * of the searched band is stop band: a noise peak must not count, a
      * tone must. The signal chain with a band pass stands in for the
@@ -442,6 +457,7 @@ static void test_auto_pitch(void)
     static const struct { dsp_filter_t flt; int fc; } trx[] = {
         { DSP_FILTER_OFF, 600 }, { DSP_FILTER_250, 600 }, { DSP_FILTER_100, 600 },
         { DSP_FILTER_250, 350 }, { DSP_FILTER_100, 950 },
+        { DSP_FILTER_100, 300 }, { DSP_FILTER_100, 990 },     /* at the edges */
     };
     const size_t settle = DSP_FS / 10;
     float *in = malloc((settle + n) * sizeof(float));
@@ -454,10 +470,11 @@ static void test_auto_pitch(void)
         int found = 0, missed = 0;
         const int runs = 200;
         for (int r = 0; r < runs; r++) {
-            float tone = r % 2 ? 0.03f : 0.0f;      /* odd runs: a tone at fc + 10 Hz */
+            /* odd runs: a tone 10 Hz from fc, towards the middle of the range */
+            float tone = r % 2 ? 0.03f : 0.0f;
+            int ft = trx[t].fc + (trx[t].fc < 650 ? 10 : -10);
             for (size_t k = 0; k < settle + n; k++)
-                in[k] = 0.1f * noise()
-                      + tone * sinf(2.0f * (float)M_PI * (trx[t].fc + 10) * k / DSP_FS);
+                in[k] = 0.1f * noise() + tone * sinf(2.0f * (float)M_PI * ft * k / DSP_FS);
             dsp_init(&p);
             dsp_process(in, st, settle + n);
             for (size_t k = 0; k < n; k++)
@@ -466,7 +483,7 @@ static void test_auto_pitch(void)
             if (tone == 0.0f)
                 found += ok;
             else
-                missed += !ok || fabsf(hz - (trx[t].fc + 10)) > 5.0f;
+                missed += !ok || fabsf(hz - ft) > 5.0f;
         }
         int bw = dsp_filter_bw_hz(trx[t].flt);
         CHECK(found == 0, "auto pitch behind a %d Hz filter at %d Hz: noise taken as a tone "
