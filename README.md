@@ -167,11 +167,20 @@ tested on the PC:
 
 ```sh
 make -C firmware/test/host       # checks
-make -C firmware/test/host wav   # plus WAV files to listen to (build/*.wav)
+make -C firmware/test/host wav   # plus WAV files to listen to (build/wav/)
 ```
 
-The WAV files contain three CW stations (480, 600, 760 Hz) in noise, once
-per mode – listen with headphones.
+The WAV files (16 kHz stereo, listen with headphones) show each part of
+the signal chain:
+
+| Files | What to listen for |
+|---|---|
+| `01`–`05` pile-up | three CW stations (480, 600, 760 Hz) in noise: the input, then mono, pitch, 90° and Haas |
+| `06`–`08` width | pitch mode narrow / medium / wide on the same pile-up |
+| `09`–`11` filter | pitch mode with 500 / 250 / 100 Hz |
+| `12` sweep | one tone gliding from 300 to 1000 Hz: travels from left to right, in the middle at 600 Hz |
+| `13`–`15` AGC | weak station, a very strong one, weak again: the input, AGC on, AGC off |
+| `16` changes | a setting changed every 1.5 s (list in `16_changes.txt`); no change may click |
 
 ## Enclosure
 

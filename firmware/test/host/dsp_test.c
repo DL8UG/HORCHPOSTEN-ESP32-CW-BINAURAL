@@ -457,7 +457,10 @@ static void write_wav(const char *name, const float *st, size_t frames)
     printf("wrote %s\n", name);
 }
 
-/* keying of one station: "CQ TEST" at a speed in wpm, repeated */
+/* C   Q   T E S T, as dot units: 1 = key down */
+static const char CQ[] = "1110101110100000111011101011100000001110001000101010001110000000";
+
+/* key state of a station sending bits at wpm, started offset_s early */
 static float keying(const char *bits, int wpm, size_t k, float offset_s)
 {
     float dot = 1.2f / wpm;
@@ -467,46 +470,153 @@ static float keying(const char *bits, int wpm, size_t k, float offset_s)
     return bits[i] == '1' ? 1.0f : 0.0f;
 }
 
+/* add a keyed CW station to in[from..to) with soft keying edges (5 ms) */
+static void add_station(float *in, size_t from, size_t to, float f, float amp,
+                        int wpm, float offset_s)
+{
+    float env = 0;
+    for (size_t k = from; k < to; k++) {
+        env += (keying(CQ, wpm, k - from, offset_s) - env) * 0.0125f;
+        in[k] += amp * env * sinf(2.0f * (float)M_PI * f * k / DSP_FS);
+    }
+}
+
+static float *make_noise(float amp, size_t n)
+{
+    float *in = malloc(n * sizeof(float));
+    for (size_t k = 0; k < n; k++)
+        in[k] = amp * noise();
+    return in;
+}
+
+/* the pile-up: three stations at 480, 600 and 760 Hz in noise */
+static float *scene_pileup(size_t n)
+{
+    float *in = make_noise(0.05f, n);
+    add_station(in, 0, n, 480, 0.04f, 18, 0.0f);
+    add_station(in, 0, n, 600, 0.05f, 22, 0.37f);
+    add_station(in, 0, n, 760, 0.03f, 26, 0.74f);
+    return in;
+}
+
+static void wav_run(const char *name, const dsp_params_t *p, const change_t *ch,
+                    size_t nch, const float *in, size_t n)
+{
+    float *out = run_changes(p, ch, nch, in, n);
+    char path[96];
+    snprintf(path, sizeof(path), "build/wav/%s", name);
+    write_wav(path, out, n);
+    free(out);
+}
+
+static void wav_input(const char *name, const float *in, size_t n)
+{
+    float *st = malloc(2 * n * sizeof(float));
+    for (size_t k = 0; k < n; k++)
+        st[2 * k] = st[2 * k + 1] = in[k];
+    char path[96];
+    snprintf(path, sizeof(path), "build/wav/%s", name);
+    write_wav(path, st, n);
+    free(st);
+}
+
 static void write_wavs(void)
 {
-    /* C   Q   T E S T, as dot units: 1 = key down */
-    const char *cq = "1110101110100000111011101011100000001110001000101010001110000000";
     const size_t n = 12 * DSP_FS;
-    float *in = malloc(n * sizeof(float));
-    float *out = malloc(2 * n * sizeof(float));
-    /* three stations at 480, 600 and 760 Hz, different speeds, plus noise */
-    const float f[3] = { 480, 600, 760 }, a[3] = { 0.04f, 0.05f, 0.03f };
-    const int wpm[3] = { 18, 22, 26 };
-    float env[3] = { 0 };
-    for (size_t k = 0; k < n; k++) {
-        float x = 0.05f * noise();
-        for (int s = 0; s < 3; s++) {
-            float want = keying(cq, wpm[s], k, 0.37f * s);
-            env[s] += (want - env[s]) * 0.004f;      /* soft keying edges */
-            x += a[s] * env[s] * sinf(2.0f * (float)M_PI * f[s] * k / DSP_FS);
-        }
-        in[k] = x;
-    }
-    static const struct { const char *name; dsp_mode_t mode; dsp_filter_t flt; } runs[] = {
-        { "mono.wav", DSP_MODE_MONO, DSP_FILTER_OFF },
-        { "pitch.wav", DSP_MODE_PITCH, DSP_FILTER_OFF },
-        { "pitch_filter500.wav", DSP_MODE_PITCH, DSP_FILTER_500 },
-        { "iq90.wav", DSP_MODE_IQ, DSP_FILTER_OFF },
-        { "haas.wav", DSP_MODE_HAAS, DSP_FILTER_OFF },
+    dsp_params_t p = defaults();
+    p.agc = true;
+
+    /* 1: the modes on the pile-up, input first for comparison */
+    float *in = scene_pileup(n);
+    wav_input("01_pileup_input.wav", in, n);
+    static const struct { const char *name; dsp_mode_t mode; } modes[] = {
+        { "02_pileup_mono.wav", DSP_MODE_MONO }, { "03_pileup_pitch.wav", DSP_MODE_PITCH },
+        { "04_pileup_iq90.wav", DSP_MODE_IQ }, { "05_pileup_haas.wav", DSP_MODE_HAAS },
     };
-    for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
-        dsp_params_t p = defaults();
-        p.mode = runs[r].mode;
-        p.filter = runs[r].flt;
-        p.agc = true;
-        dsp_init(&p);
-        dsp_process(in, out, n);
-        char path[64];
-        snprintf(path, sizeof(path), "build/%s", runs[r].name);
-        write_wav(path, out, n);
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        dsp_params_t q = p;
+        q.mode = modes[i].mode;
+        wav_run(modes[i].name, &q, NULL, 0, in, n);
+    }
+
+    /* 2: pitch mode, the three widths */
+    static const char *widths[] = { "06_width_narrow.wav", "07_width_medium.wav", "08_width_wide.wav" };
+    for (int w = 0; w < DSP_WIDTH_COUNT; w++) {
+        dsp_params_t q = p;
+        q.width = (dsp_width_t)w;
+        wav_run(widths[w], &q, NULL, 0, in, n);
+    }
+
+    /* 3: pitch mode, the filters */
+    static const char *filters[] = { "09_filter_500.wav", "10_filter_250.wav", "11_filter_100.wav" };
+    for (int f = DSP_FILTER_500; f < DSP_FILTER_COUNT; f++) {
+        dsp_params_t q = p;
+        q.filter = (dsp_filter_t)f;
+        wav_run(filters[f - 1], &q, NULL, 0, in, n);
     }
     free(in);
-    free(out);
+
+    /* 4: one steady tone gliding 300 -> 1000 Hz: travels from left to right,
+     * in the middle at the centre pitch of 600 Hz */
+    in = make_noise(0.005f, n);
+    double ph = 0;
+    for (size_t k = 0; k < n; k++) {
+        double f = 300.0 + 700.0 * k / n;
+        ph += 2.0 * M_PI * f / DSP_FS;
+        in[k] += 0.1f * (float)sin(ph);
+    }
+    wav_run("12_sweep_300_1000_pitch.wav", &p, NULL, 0, in, n);
+    free(in);
+
+    /* 5: AGC: weak station, pause, very strong one, pause, weak again */
+    in = make_noise(0.003f, n);
+    add_station(in, 0, 4 * DSP_FS, 600, 0.01f, 20, 0.0f);
+    add_station(in, 5 * DSP_FS, 8 * DSP_FS, 650, 0.6f, 24, 0.0f);
+    add_station(in, 9 * DSP_FS, n, 600, 0.01f, 20, 0.0f);
+    wav_input("13_agc_input.wav", in, n);
+    wav_run("14_agc_on.wav", &p, NULL, 0, in, n);
+    dsp_params_t q = p;
+    q.agc = false;
+    wav_run("15_agc_off.wav", &q, NULL, 0, in, n);
+    free(in);
+
+    /* 6: a change every 1.5 s while the pile-up goes on; must never click */
+    static const struct { const char *what; int key; int val; } steps[] = {
+        { "pitch 625 Hz", 'p', 625 }, { "pitch 650 Hz", 'p', 650 },
+        { "pitch 800 Hz (auto pitch jump)", 'p', 800 }, { "pitch 600 Hz", 'p', 600 },
+        { "mode 90 deg", 'm', DSP_MODE_IQ }, { "mode Haas", 'm', DSP_MODE_HAAS },
+        { "mode mono", 'm', DSP_MODE_MONO }, { "mode pitch", 'm', DSP_MODE_PITCH },
+        { "filter 250 Hz", 'f', DSP_FILTER_250 }, { "filter 100 Hz", 'f', DSP_FILTER_100 },
+        { "pitch 650 Hz with filter 100", 'p', 650 }, { "filter off", 'f', DSP_FILTER_OFF },
+        { "AGC off", 'a', 0 }, { "AGC on", 'a', 1 },
+        { "width wide", 'w', DSP_WIDTH_WIDE }, { "swap left/right", 's', 1 },
+    };
+    const size_t nst = sizeof(steps) / sizeof(steps[0]), gap = DSP_FS * 3 / 2;
+    const size_t nc = (nst + 2) * gap;
+    in = scene_pileup(nc);
+    change_t ch[sizeof(steps) / sizeof(steps[0])];
+    dsp_params_t cur = p;
+    FILE *log = fopen("build/wav/16_changes.txt", "w");
+    for (size_t i = 0; i < nst; i++) {
+        switch (steps[i].key) {
+        case 'p': cur.pitch_hz = steps[i].val; break;
+        case 'm': cur.mode = (dsp_mode_t)steps[i].val; break;
+        case 'f': cur.filter = (dsp_filter_t)steps[i].val; break;
+        case 'a': cur.agc = steps[i].val; break;
+        case 'w': cur.width = (dsp_width_t)steps[i].val; break;
+        case 's': cur.swap = steps[i].val; break;
+        }
+        ch[i].at = (i + 1) * gap;
+        ch[i].p = cur;
+        if (log)
+            fprintf(log, "%5.1f s  %s\n", (double)ch[i].at / DSP_FS, steps[i].what);
+    }
+    if (log) {
+        fclose(log);
+        printf("wrote build/wav/16_changes.txt\n");
+    }
+    wav_run("16_changes.wav", &p, ch, nst, in, nc);
+    free(in);
 }
 
 int main(int argc, char **argv)

@@ -1,4 +1,4 @@
-# Host tests of the signal chain: make (checks), make wav (plus WAV files)
+# Host tests of the signal chain: make (checks), make wav (plus WAV files in build/wav)
 SRC := ../../main
 CFLAGS ?= -O2 -g -Wall -Wextra -Werror -std=c11 -D_DEFAULT_SOURCE
 OBJS := build/dsp_test.o build/dsp.o build/pitch.o
@@ -8,6 +8,7 @@ test: build/dsp_test
 	./build/dsp_test
 
 wav: build/dsp_test
+	mkdir -p build/wav
 	./build/dsp_test --wav
 
 build/dsp_test: $(OBJS)
