@@ -52,6 +52,14 @@ stands out of the noise.
 
 The speaker outputs of the board stay off.
 
+**Remove the on-board microphones.** They share the codec input with the
+LINE IN jack, and a plug in the jack does not cut them off: on a V2.2
+board marked A618, tapping a microphone reached −8 dBFS, louder than a
+line signal from a PC, and speech in the room came through. Desolder
+both, or cut one leg of each (the one not on the ground plane); then a
+tap stays below −45 dBFS. Don't bridge their legs instead: that may
+short the line input to ground as well.
+
 ## Wiring
 
 ```
