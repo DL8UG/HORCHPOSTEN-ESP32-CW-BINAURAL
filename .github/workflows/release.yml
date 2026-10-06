@@ -28,7 +28,7 @@ jobs:
           target: esp32
           path: firmware
           command: >-
-            git config --global --add safe.directory '*' && idf.py build &&
+            idf.py build &&
             cd build && python -m esptool --chip esp32 merge_bin -o merged.bin @flash_args
 
       - name: Enclosure

@@ -26,7 +26,7 @@ jobs:
           esp_idf_version: v5.5.1
           target: esp32
           path: firmware
-          command: git config --global --add safe.directory '*' && idf.py build
+          command: idf.py build    # the action sets safe.directory itself
       - uses: actions/upload-artifact@v4
         with:
           name: firmware
