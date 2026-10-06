@@ -109,6 +109,9 @@ the DIP switch next to the SD slot.
 
 ## Modes
 
+How every stage works, with the formulas and numbers behind it, is
+explained in [docs/algorithms.md](docs/algorithms.md).
+
 ### Binaural by pitch
 
 The main mode. A signal exactly on the centre pitch is in the middle of
