@@ -23,9 +23,14 @@ static volatile float s_gain = 1.0f;
 static volatile bool s_mute, s_duck;
 static volatile float s_level;
 
-/* capture for the auto pitch */
-static float *volatile s_cap_buf;
-static volatile size_t s_cap_n, s_cap_pos;
+/*
+ * Capture for the auto pitch. The UI task numbers each request; the
+ * audio task keeps its own position and reports the number it filled.
+ * A request that timed out can't fill or end a later one.
+ */
+static float *volatile s_cap_buf;       /* NULL = no request */
+static volatile size_t s_cap_n;
+static volatile unsigned s_cap_id, s_cap_done_id;
 static SemaphoreHandle_t s_cap_done;
 
 esp_err_t audio_io_init(const board_i2s_pins_t *pins)
@@ -84,11 +89,14 @@ void audio_wait_fader(void)
 
 bool audio_capture(float *buf, size_t n, int timeout_ms)
 {
-    xSemaphoreTake(s_cap_done, 0);
+    unsigned id = s_cap_id + 1;
     s_cap_n = n;
-    s_cap_pos = 0;
+    s_cap_id = id;
     s_cap_buf = buf;            /* the audio task starts filling now */
-    bool ok = xSemaphoreTake(s_cap_done, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    TickType_t start = xTaskGetTickCount(), wait = pdMS_TO_TICKS(timeout_ms);
+    bool ok = false;
+    for (TickType_t used = 0; !ok && used < wait; used = xTaskGetTickCount() - start)
+        ok = xSemaphoreTake(s_cap_done, wait - used) == pdTRUE && s_cap_done_id == id;
     s_cap_buf = NULL;
     return ok;
 }
@@ -104,6 +112,8 @@ static void audio_task(void *arg)
     const int ch = 0;
 #endif
     unsigned overruns = 0;
+    unsigned cap_id = 0;        /* request being filled */
+    size_t cap_pos = 0;
     for (;;) {
         size_t got = 0;
         if (i2s_channel_read(s_rx, rx, sizeof(rx), &got, portMAX_DELAY) != ESP_OK
@@ -117,13 +127,17 @@ static void audio_task(void *arg)
             in[i] = rx[2 * i + ch] * g;
 
         float *cap = s_cap_buf;
-        if (cap) {
-            size_t pos = s_cap_pos;
-            for (int i = 0; i < AUDIO_BLOCK && pos < s_cap_n; i++)
-                cap[pos++] = in[i];
-            s_cap_pos = pos;
-            if (pos >= s_cap_n) {
-                s_cap_buf = NULL;
+        unsigned id = s_cap_id;
+        if (cap && id != s_cap_done_id) {
+            if (id != cap_id) {
+                cap_id = id;
+                cap_pos = 0;
+            }
+            size_t n = s_cap_n;
+            for (int i = 0; i < AUDIO_BLOCK && cap_pos < n; i++)
+                cap[cap_pos++] = in[i];
+            if (cap_pos >= n) {
+                s_cap_done_id = id;
                 xSemaphoreGive(s_cap_done);
             }
         }
