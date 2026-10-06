@@ -81,7 +81,7 @@ phones / line out ---> LINE IN  (3.5 mm, tip = left channel is used)
 The green LED confirms with short blinks (e.g. the number of the new mode);
 one long blink means "not possible" (end of a range, auto pitch found no
 clear tone). Every change is also printed in the serial log. Settings are
-saved 3 s after the last change; the audio fades out for a few
+saved 3 s after the last change; the audio fades out for about 50
 milliseconds while the flash is written. Mute is not kept, Horchposten
 always starts unmuted.
 
