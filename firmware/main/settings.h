@@ -9,7 +9,8 @@ void settings_defaults(ui_state_t *st);
 /* load into *st; false (and defaults) if nothing valid is stored */
 bool settings_load(ui_state_t *st);
 
-/* remember that *st changed; due for saving a few seconds later */
+/* remember that *st changed; due for saving a few seconds later, unless
+ * it equals what the flash holds */
 void settings_changed(const ui_state_t *st);
 
 /* true when a change waits and the delay is over */

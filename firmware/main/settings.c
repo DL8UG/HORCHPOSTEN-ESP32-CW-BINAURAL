@@ -22,6 +22,17 @@ typedef struct {
 
 static ui_state_t s_pending;
 static int64_t s_due;           /* 0 = nothing to save */
+static ui_state_t s_saved;      /* what the flash holds */
+static bool s_have_saved;
+
+/* field by field: a struct compare would include the padding */
+static bool same(const ui_state_t *a, const ui_state_t *b)
+{
+    const dsp_params_t *x = &a->dsp, *y = &b->dsp;
+    return x->mode == y->mode && x->filter == y->filter && x->width == y->width
+        && x->pitch_hz == y->pitch_hz && x->agc == y->agc && x->swap == y->swap
+        && a->volume == b->volume && a->in_gain_db == b->in_gain_db;
+}
 
 void settings_defaults(ui_state_t *st)
 {
@@ -69,6 +80,8 @@ bool settings_load(ui_state_t *st)
     if (s.st.in_gain_db >= 0 && s.st.in_gain_db <= UI_GAIN_MAX_DB
         && s.st.in_gain_db % UI_GAIN_STEP_DB == 0)
         st->in_gain_db = s.st.in_gain_db;
+    s_saved = *st;
+    s_have_saved = true;
     return true;
 }
 
@@ -76,7 +89,12 @@ void settings_changed(const ui_state_t *st)
 {
     s_pending = *st;
     s_pending.mute = false;
-    s_due = esp_timer_get_time() + SAVE_DELAY_US;
+    /* back to what is stored (AGC twice, pitch up and down): nothing to
+     * write, and no audio gap for it */
+    if (s_have_saved && same(&s_pending, &s_saved))
+        s_due = 0;
+    else
+        s_due = esp_timer_get_time() + SAVE_DELAY_US;
 }
 
 bool settings_due(void)
@@ -95,5 +113,9 @@ void settings_save(void)
     if (err == ESP_OK)
         err = nvs_commit(h);
     nvs_close(h);
+    if (err == ESP_OK) {
+        s_saved = s_pending;
+        s_have_saved = true;
+    }
     ESP_LOGI(TAG, "saved (%s)", esp_err_to_name(err));
 }
