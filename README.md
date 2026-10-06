@@ -64,6 +64,11 @@ short the line input to ground as well.
 
 ## Wiring
 
+Input and output are ordinary 3.5 mm jacks. That keeps Horchposten
+universal: it can be put into any headphone connection, between the
+transceiver and the headphones (a 6.3 mm socket or plug needs only the
+usual adapter).
+
 ```
 Transceiver            ESP32-Audio-Kit
 phones / line out ---> LINE IN  (3.5 mm, tip = left channel is used)
