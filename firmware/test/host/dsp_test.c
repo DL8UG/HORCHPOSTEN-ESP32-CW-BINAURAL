@@ -384,6 +384,70 @@ static void test_pitch_change(void)
     free(in);
 }
 
+static void test_xfade_level(void)
+{
+    /* mode, width and swap changes on a tone anywhere in the range: the
+     * old and the new output can be in antiphase, a plain mix of the two
+     * would drop out for some ms. Neither ear may drop or click. */
+    const size_t n = DSP_FS / 4, at = n / 2, end = at + DSP_FS / 20;
+    struct { dsp_params_t from, to; } cases[32];
+    size_t nc = 0;
+    for (int a = 0; a < DSP_MODE_COUNT; a++)
+        for (int b = 0; b < DSP_MODE_COUNT; b++)
+            if (a != b) {
+                cases[nc].from = cases[nc].to = defaults();
+                cases[nc].from.mode = (dsp_mode_t)a;
+                cases[nc++].to.mode = (dsp_mode_t)b;
+            }
+    for (int m = 0; m < DSP_MODE_COUNT; m++)
+        for (int w = 0; w < DSP_WIDTH_COUNT; w++) {
+            dsp_params_t p = defaults();
+            p.mode = (dsp_mode_t)m;
+            p.width = (dsp_width_t)w;
+            cases[nc].from = cases[nc].to = p;
+            cases[nc++].to.swap = true;
+            if (m == DSP_MODE_PITCH || m == DSP_MODE_HAAS) {
+                cases[nc].from = cases[nc].to = p;
+                cases[nc++].to.width = (dsp_width_t)((w + 1) % DSP_WIDTH_COUNT);
+            }
+        }
+    float worst = 1, worst_step = 0;
+    int worst_f = 0, worst_sf = 0;
+    size_t worst_c = 0, worst_sc = 0;
+    for (int f = 310; f <= 1000; f += 7) {
+        float *in = make_tone((float)f, 0.3f, 0, n, n);
+        for (size_t c = 0; c < nc; c++) {
+            change_t ch = { at, cases[c].to };
+            float *st = run_changes(&cases[c].from, &ch, 1, in, n);
+            float own = max_step(st, at - DSP_FS / 20, at - 1);
+            for (int lr = 0; lr < 2; lr++) {
+                float lv = min_level(st, at, end, lr);
+                if (lv < worst) {
+                    worst = lv;
+                    worst_f = f;
+                    worst_c = c;
+                }
+            }
+            float step = max_step(st, at - 1, end) / own;
+            if (step > worst_step) {
+                worst_step = step;
+                worst_sf = f;
+                worst_sc = c;
+            }
+            free(st);
+        }
+        free(in);
+    }
+    CHECK(worst > 0.27f, "xfade %s/%d/%d -> %s/%d/%d at %d Hz: drops to %.3f",
+          dsp_mode_name(cases[worst_c].from.mode), cases[worst_c].from.width,
+          cases[worst_c].from.swap, dsp_mode_name(cases[worst_c].to.mode),
+          cases[worst_c].to.width, cases[worst_c].to.swap, worst_f, worst);
+    CHECK(worst_step < 1.15f, "xfade %s/%d/%d -> %s/%d/%d at %d Hz: step %.2f x the one before",
+          dsp_mode_name(cases[worst_sc].from.mode), cases[worst_sc].from.width,
+          cases[worst_sc].from.swap, dsp_mode_name(cases[worst_sc].to.mode),
+          cases[worst_sc].to.width, cases[worst_sc].to.swap, worst_sf, worst_step);
+}
+
 static void test_filter_retune(void)
 {
     /* a narrow filter moved away from a tone must not release a burst */
@@ -783,6 +847,7 @@ int main(int argc, char **argv)
     test_xfade();
     test_agc_onset();
     test_pitch_change();
+    test_xfade_level();
     test_filter_retune();
     test_auto_pitch();
     test_steps();

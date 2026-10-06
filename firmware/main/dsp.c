@@ -3,8 +3,11 @@
  * -> stereo stage of the selected mode -> soft limiter.
  *
  * All modes take their samples from the same I/Q history, so a mode or
- * width change can be cross-faded by running the stereo stage twice.
- * A new band pass is cross-faded with the old one the same way. A new
+ * width change can be faded by running the stereo stage twice. Each ear
+ * comes out as an analytic signal; during the fade its phase glides
+ * from the old output to the new one, so two outputs in antiphase do
+ * not cancel each other as in a plain mix.
+ * A new band pass is cross-faded with the old one. A new
  * centre pitch glides, and so does the band pass along with it. A change
  * that arrives during a fade waits for its end, so a fade never jumps.
  */
@@ -83,6 +86,7 @@ static struct {
     dsp_params_t cur;       /* in use by the audio path */
     stage_t st, st_old;     /* stereo stage now and fading out */
     int xfade;              /* samples left of the cross-fade, 0 = none */
+    float xf_phi[2];        /* phase of new over old output, per ear, unwrapped */
     int glide;              /* samples left of a pitch glide */
     float glide_from;       /* rotation the glide starts from */
 
@@ -284,6 +288,12 @@ static inline float hist(const float *h, int delay)
     return h[(s.pos - (unsigned)delay) & HIST_MASK];
 }
 
+/* analytic signal I - jQ, delay samples back */
+static inline float complex analytic(int delay)
+{
+    return hist(s.hist_i, delay) - hist(s.hist_q, delay) * I;
+}
+
 static void stage_set(stage_t *st, const dsp_params_t *p)
 {
     st->p = *p;
@@ -294,15 +304,15 @@ static void stage_set(stage_t *st, const dsp_params_t *p)
     st->rot_s = sinf(st->th);
 }
 
-/* stereo stage for one sample, history already holds the newest I/Q */
-static void stereo(const stage_t *st, float *l, float *r)
+/* stereo stage for one sample, history already holds the newest I/Q;
+ * each ear as an analytic signal, the output is its real part */
+static void stereo(const stage_t *st, float complex *l, float complex *r)
 {
     const dsp_params_t *p = &st->p;
-    float i0 = hist(s.hist_i, 0);
+    float complex a0 = analytic(0);
     switch (p->mode) {
-    case DSP_MODE_PITCH: {
+    case DSP_MODE_PITCH:
         /*
-         * Q leads I by 90 degrees, so I - jQ is the analytic signal.
          * One ear gets I(t), the other Re{(I - jQ)(t - D) * e^(+j wc D)}
          * = I(t - D) cos(wc D) + Q(t - D) sin(wc D).
          * For a tone at f this is a phase lag of 2 pi (f - fc) D: zero at
@@ -310,29 +320,40 @@ static void stereo(const stage_t *st, float *l, float *r)
          * leads in the delayed ear, a higher one lags there.
          * Default: lower pitch left, higher pitch right.
          */
-        int d = st->d_pitch;
-        float x = hist(s.hist_i, d) * st->rot_c + hist(s.hist_q, d) * st->rot_s;
-        *l = x;
-        *r = i0;
+        *l = analytic(st->d_pitch) * (st->rot_c + st->rot_s * I);
+        *r = a0;
         break;
-    }
     case DSP_MODE_IQ:
-        *l = i0;
-        *r = hist(s.hist_q, 0);
+        *l = a0;
+        *r = I * a0;            /* Re{j (I - jQ)} = Q */
         break;
     case DSP_MODE_HAAS:
-        *l = i0;
-        *r = hist(s.hist_i, st->d_haas);
+        *l = a0;
+        *r = analytic(st->d_haas);
         break;
     default:
-        *l = *r = i0;
+        *l = *r = a0;
         break;
     }
     if (p->swap) {
-        float t = *l;
+        float complex t = *l;
         *l = *r;
         *r = t;
     }
+}
+
+/*
+ * One ear during a fade, g = 0 (old) .. 1 (new): the level moves
+ * linearly, the phase glides by g times the phase of new over old. That
+ * phase is followed from sample to sample, so it never jumps by 2 pi
+ * while the level is up.
+ */
+static float fade(float complex zo, float complex zn, float g, float *phi)
+{
+    float d = cargf(zn * conjf(zo));
+    *phi += remainderf(d - *phi, 2.0f * (float)M_PI);
+    float mag = cabsf(zo) + g * (cabsf(zn) - cabsf(zo));
+    return mag * cosf(cargf(zo) + g * *phi);
 }
 
 static void apply(const dsp_params_t *p)
@@ -342,6 +363,7 @@ static void apply(const dsp_params_t *p)
     if (n.mode != s.cur.mode || n.width != s.cur.width || n.swap != s.cur.swap) {
         s.st_old = s.st;
         s.xfade = XFADE_N;
+        s.xf_phi[0] = s.xf_phi[1] = 0.0f;
     } else if (n.pitch_hz != s.cur.pitch_hz) {
         /* only the rotation changes: let it glide instead of cross-fading
          * two phases of the same tone, which can cancel each other */
@@ -462,14 +484,15 @@ void dsp_process(const float *in, float *out, size_t n)
             s.st.rot_s = sinf(th);
         }
 
-        float l, r;
-        stereo(&s.st, &l, &r);
+        float complex zl, zr;
+        stereo(&s.st, &zl, &zr);
+        float l = crealf(zl), r = crealf(zr);
         if (s.xfade > 0) {
-            float ol, or_;
+            float complex ol, or_;
             stereo(&s.st_old, &ol, &or_);
-            float g = (float)s.xfade / XFADE_N;   /* 1 -> 0 */
-            l = l * (1.0f - g) + ol * g;
-            r = r * (1.0f - g) + or_ * g;
+            float g = 1.0f - (float)s.xfade / XFADE_N;     /* 0 -> 1 */
+            l = fade(ol, zl, g, &s.xf_phi[0]);
+            r = fade(or_, zr, g, &s.xf_phi[1]);
             s.xfade--;
         }
         out[2 * k] = limit(clampf(l, -4.0f, 4.0f));
