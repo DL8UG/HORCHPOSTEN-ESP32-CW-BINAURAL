@@ -167,13 +167,15 @@ static bool handle(const button_event_t *ev)
     case 4:     /* KEY3 short: pitch down */
     case 6:     /* KEY4 short: pitch up */
     {
-        /* clamped, so the limits can be reached from an auto pitch value
-         * off the 25 Hz grid */
-        int p = d->pitch_hz + (ev->key == 2 ? -PITCH_STEP_HZ : PITCH_STEP_HZ);
-        p = p < DSP_PITCH_MIN ? DSP_PITCH_MIN : p > DSP_PITCH_MAX ? DSP_PITCH_MAX : p;
-        if (p == d->pitch_hz)
+        /* clamped by the signal chain's own rule, so the limits can be
+         * reached from an auto pitch value off the 25 Hz grid */
+        dsp_params_t n = *d;
+        n.pitch_hz += ev->key == 2 ? -PITCH_STEP_HZ : PITCH_STEP_HZ;
+        dsp_params_sanitize(&n);
+        if (n.pitch_hz == d->pitch_hz)
             return false;
-        d->pitch_hz = p;
+        d->pitch_hz = n.pitch_hz;
+        led_blink(1);
         break;
     }
     case 5:     /* KEY3 long: width */
@@ -191,6 +193,7 @@ static bool handle(const button_event_t *ev)
             return false;
         s_st.volume = v;
         codec_set_volume(v);
+        led_blink(1);
         dsp = false;
         break;
     }
