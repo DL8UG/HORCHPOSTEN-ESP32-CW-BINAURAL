@@ -31,7 +31,7 @@
 #define R_ADC_SRCBST_CTRL   0x52
 #define R_OMIXER_DACA_CTRL  0x53
 #define R_OMIXER_SR         0x54
-#define R_HPOUT_CTRL        0x56    /* bits 9:4 headphone volume */
+#define R_HPOUT_CTRL        0x56    /* bits 9:4 headphone volume, 1 dB steps */
 #define R_SPKOUT_CTRL       0x58
 
 static const char *TAG = "ac101";
@@ -76,14 +76,19 @@ static esp_err_t ac_init(void)
     return err ? ESP_FAIL : ESP_OK;
 }
 
-/* a hard step of about 1.5 dB per press; zero cross not known for the AC101 */
+/*
+ * Headphone volume 1 dB per register step, 63 = 0 dB (the Linux ac101
+ * driver: -63 dB + 1 dB per step). 1.5 dB per press like the ES8388:
+ * steps of 1 and 2 dB in turn, CODEC_VOL_MAX = 0 dB down to -45 dB.
+ * A hard step; zero cross not known for the AC101.
+ */
 static esp_err_t ac_set_volume(int vol)
 {
     uint16_t r;
     esp_err_t err = codec_read16(R_HPOUT_CTRL, &r);
     if (err)
         return err;
-    uint16_t v = (uint16_t)(vol * 2 + 3);  /* 0..63 */
+    uint16_t v = (uint16_t)(63 - ((CODEC_VOL_MAX - vol) * 3 + 1) / 2);   /* 18..63 */
     r = (r & ~(0x3f << 4)) | (v << 4);
     return codec_write16(R_HPOUT_CTRL, r);
 }
