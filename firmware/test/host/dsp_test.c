@@ -357,7 +357,7 @@ static void test_pitch_change(void)
     const size_t n = DSP_FS / 2, at = n / 2, end = at + DSP_FS / 20;
     static const struct { dsp_filter_t flt; int to; } cases[] = {
         { DSP_FILTER_OFF, 1000 }, { DSP_FILTER_OFF, 625 }, { DSP_FILTER_500, 625 },
-        { DSP_FILTER_250, 650 },
+        { DSP_FILTER_250, 650 }, { DSP_FILTER_100, 625 }, { DSP_FILTER_100, 575 },
     };
     float *in = make_tone(600, 0.3f, 0, n, n);
     for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
@@ -372,7 +372,7 @@ static void test_pitch_change(void)
         CHECK(step < 0.08f, "pitch 600->%d, filter %d: step of %.3f", cases[c].to, bw, step);
         for (int lr = 0; lr < 2; lr++) {
             float lv = min_level(st, at, end, lr);
-            CHECK(lv > 0.2f, "pitch 600->%d, filter %d: %s drops to %.3f", cases[c].to, bw,
+            CHECK(lv > 0.27f, "pitch 600->%d, filter %d: %s drops to %.3f", cases[c].to, bw,
                   lr ? "right" : "left", lv);
         }
         free(st);

@@ -4,14 +4,15 @@
  *
  * All modes take their samples from the same I/Q history, so a mode or
  * width change can be cross-faded by running the stereo stage twice.
- * A new band pass is cross-faded with the old one the same way, and a new
- * centre pitch glides. A change that arrives during a fade waits for its
- * end, so a fade never jumps.
+ * A new band pass is cross-faded with the old one the same way. A new
+ * centre pitch glides, and so does the band pass along with it. A change
+ * that arrives during a fade waits for its end, so a fade never jumps.
  */
 #include "dsp.h"
 
 #include <complex.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef M_PI
@@ -46,6 +47,11 @@ typedef struct {
     biquad_t bq[BP_STAGES];
     bool on;
 } bandpass_t;
+
+/* one band pass stage in polar form, for the glide */
+typedef struct {
+    float r, th, g;     /* pole radius and angle, gain b0 */
+} polar_t;
 
 /* second order allpass section y = a2*(x + y[n-2]) - x[n-2] */
 typedef struct {
@@ -90,6 +96,8 @@ static struct {
     bandpass_t bp[2];       /* in use and fading out */
     int bp_cur;
     int bp_xfade;
+    int bp_glide;           /* samples left of a band pass glide */
+    polar_t bpg_from[BP_STAGES], bpg_to[BP_STAGES];
 
     float agc_env, agc_gain;
     int agc_hang;
@@ -185,6 +193,24 @@ static void bandpass_design(bandpass_t *f, int fc, int bw)
             bq->a2 = (float)a2;
         }
     }
+}
+
+static polar_t to_polar(const biquad_t *b)
+{
+    float r = sqrtf(b->a2);
+    polar_t p = { r, acosf(clampf(-b->a1 / (2.0f * r), -1.0f, 1.0f)), b->b0 };
+    return p;
+}
+
+/* stage coefficients a fraction g (0..1) of the way through the glide */
+static void glide_stage(biquad_t *b, const polar_t *from, const polar_t *to, float g)
+{
+    float r = from->r + g * (to->r - from->r);
+    float th = from->th + g * (to->th - from->th);
+    b->a1 = -2.0f * r * cosf(th);
+    b->a2 = r * r;
+    b->b0 = from->g + g * (to->g - from->g);
+    b->b2 = -b->b0;
 }
 
 static float biquad(biquad_t *b, float x)
@@ -322,10 +348,24 @@ static void apply(const dsp_params_t *p)
         s.glide_from = s.st.th;
         s.glide = XFADE_N;
     }
-    if (n.filter != s.cur.filter || (n.filter != DSP_FILTER_OFF && n.pitch_hz != s.cur.pitch_hz)) {
-        /* the new filter starts from rest in the other slot */
+    int bw = dsp_filter_bw_hz(n.filter);
+    int step = abs(n.pitch_hz - s.cur.pitch_hz);
+    if (n.filter == s.cur.filter && bw && step && 2 * step <= bw) {
+        /* a small step of the same filter: turn its poles to the new centre
+         * while the pitch glides. A second filter cross-faded in would
+         * differ in phase at the tone and dip the level. */
+        bandpass_t to;
+        bandpass_design(&to, n.pitch_hz, bw);
+        for (int i = 0; i < BP_STAGES; i++) {
+            s.bpg_from[i] = to_polar(&s.bp[s.bp_cur].bq[i]);
+            s.bpg_to[i] = to_polar(&to.bq[i]);
+        }
+        s.bp_glide = XFADE_N;
+    } else if (n.filter != s.cur.filter || (bw && step)) {
+        /* another filter, or a jump that a glide would sweep over the tones
+         * in between: the new filter starts from rest in the other slot */
         s.bp_cur ^= 1;
-        bandpass_design(&s.bp[s.bp_cur], n.pitch_hz, dsp_filter_bw_hz(n.filter));
+        bandpass_design(&s.bp[s.bp_cur], n.pitch_hz, bw);
         s.bp_xfade = XFADE_N;
     }
     s.cur = n;
@@ -365,7 +405,7 @@ void dsp_set_params(const dsp_params_t *p)
 static void take_pending(void)
 {
     unsigned want = s.pending_seq;
-    if (want == s.taken_seq || s.xfade > 0 || s.glide > 0 || s.bp_xfade > 0)
+    if (want == s.taken_seq || s.xfade > 0 || s.glide > 0 || s.bp_xfade > 0 || s.bp_glide > 0)
         return;
     unsigned a = s.seq;
     if (a & 1)
@@ -389,6 +429,11 @@ void dsp_process(const float *in, float *out, size_t n)
         s.dc_x1 = x;
         s.dc_y1 = y;
 
+        if (s.bp_glide > 0) {
+            float g = 1.0f - (float)--s.bp_glide / XFADE_N;    /* -> 1 */
+            for (int i = 0; i < BP_STAGES; i++)
+                glide_stage(&s.bp[s.bp_cur].bq[i], &s.bpg_from[i], &s.bpg_to[i], g);
+        }
         float f = bandpass(&s.bp[s.bp_cur], y);
         if (s.bp_xfade > 0) {
             float g = (float)s.bp_xfade / XFADE_N;     /* 1 -> 0 */
