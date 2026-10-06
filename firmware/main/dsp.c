@@ -79,29 +79,41 @@ typedef struct {
     dsp_params_t p;
     int d_pitch, d_haas;
     float th;               /* wc D for DSP_MODE_PITCH */
-    float rot_c, rot_s;     /* cos, sin of the rotation in use */
+    float complex rot;      /* rotation in use, e^(j th) but for a glide */
 } stage_t;
+
+/* one band pass stage on its glide: the pole turns and moves by a step
+ * per sample, no cosf on the way */
+typedef struct {
+    float complex u, du;    /* pole angle as a unit phasor, its turn per sample */
+    float r, dr;            /* pole radius, its step */
+    float db;               /* step of the gain b0 */
+} bp_glide_t;
 
 static struct {
     dsp_params_t cur;       /* in use by the audio path */
     stage_t st, st_old;     /* stereo stage now and fading out */
-    int xfade;              /* samples left of the cross-fade, 0 = none */
+
+    /* the fades of the last change, all XFADE_N long; the next change
+     * waits for their end */
+    int fade;               /* samples left, 0 = none */
+    bool fade_stage;        /* st_old -> st */
+    bool glide_rot;         /* st.rot turns by rot_step to e^(j st.th) */
+    bool fade_bp;           /* bp[bp_cur ^ 1] -> bp[bp_cur] */
+    bool glide_bp;          /* the poles of bp[bp_cur] move to bp_to */
     float xf_phi[2];        /* phase of new over old output, per ear, unwrapped */
-    int glide;              /* samples left of a pitch glide */
-    float glide_from;       /* rotation the glide starts from */
+    float complex rot_step;
+    bp_glide_t bpg[BP_STAGES];
+    biquad_t bp_to[BP_STAGES];  /* exact coefficients at the end of the glide */
 
     /* pending parameters from another task (seqlock) */
     volatile unsigned seq;
     dsp_params_t pending;
-    volatile unsigned pending_seq;
     unsigned taken_seq;
 
     float dc_x1, dc_y1;
     bandpass_t bp[2];       /* in use and fading out */
     int bp_cur;
-    int bp_xfade;
-    int bp_glide;           /* samples left of a band pass glide */
-    polar_t bpg_from[BP_STAGES], bpg_to[BP_STAGES];
 
     float agc_env, agc_gain;
     int agc_hang;
@@ -219,14 +231,29 @@ static polar_t to_polar(const biquad_t *b)
     return p;
 }
 
-/* stage coefficients a fraction g (0..1) of the way through the glide */
-static void glide_stage(biquad_t *b, const polar_t *from, const polar_t *to, float g)
+static inline float complex phasor(float th)
 {
-    float r = from->r + g * (to->r - from->r);
-    float th = from->th + g * (to->th - from->th);
-    b->a1 = -2.0f * r * cosf(th);
-    b->a2 = r * r;
-    b->b0 = from->g + g * (to->g - from->g);
+    return cosf(th) + sinf(th) * I;
+}
+
+/* start the glide of one stage from its coefficients now to *to */
+static void bp_glide_start(bp_glide_t *g, const biquad_t *now, const biquad_t *to)
+{
+    polar_t a = to_polar(now), b = to_polar(to);
+    g->u = phasor(a.th);
+    g->du = phasor((b.th - a.th) / XFADE_N);
+    g->r = a.r;
+    g->dr = (b.r - a.r) / XFADE_N;
+    g->db = (b.g - a.g) / XFADE_N;
+}
+
+static void bp_glide_step(biquad_t *b, bp_glide_t *g)
+{
+    g->u *= g->du;
+    g->r += g->dr;
+    b->a1 = -2.0f * g->r * crealf(g->u);
+    b->a2 = g->r * g->r;
+    b->b0 += g->db;
     b->b2 = -b->b0;
 }
 
@@ -313,8 +340,7 @@ static void stage_set(stage_t *st, const dsp_params_t *p)
     st->d_pitch = dsp_pitch_delay_samples(p->width);
     st->d_haas = dsp_haas_delay_samples(p->width);
     st->th = 2.0f * (float)M_PI * p->pitch_hz * st->d_pitch / DSP_FS;
-    st->rot_c = cosf(st->th);
-    st->rot_s = sinf(st->th);
+    st->rot = phasor(st->th);
 }
 
 /* stereo stage for one sample, history already holds the newest I/Q;
@@ -333,7 +359,7 @@ static void stereo(const stage_t *st, float complex *l, float complex *r)
          * leads in the delayed ear, a higher one lags there.
          * Default: lower pitch left, higher pitch right.
          */
-        *l = analytic(st->d_pitch) * (st->rot_c + st->rot_s * I);
+        *l = analytic(st->d_pitch) * st->rot;
         *r = a0;
         break;
     case DSP_MODE_IQ:
@@ -373,15 +399,16 @@ static void apply(const dsp_params_t *p)
 {
     dsp_params_t n = *p;
     dsp_params_sanitize(&n);
+    s.fade_stage = s.glide_rot = s.fade_bp = s.glide_bp = false;
+    float th_from = s.st.th;
     if (n.mode != s.cur.mode || n.width != s.cur.width || n.swap != s.cur.swap) {
         s.st_old = s.st;
-        s.xfade = XFADE_N;
+        s.fade_stage = true;
         s.xf_phi[0] = s.xf_phi[1] = 0.0f;
     } else if (n.pitch_hz != s.cur.pitch_hz) {
         /* only the rotation changes: let it glide instead of cross-fading
          * two phases of the same tone, which can cancel each other */
-        s.glide_from = s.st.th;
-        s.glide = XFADE_N;
+        s.glide_rot = true;
     }
     int bw = dsp_filter_bw_hz(n.filter);
     int step = abs(n.pitch_hz - s.cur.pitch_hz);
@@ -392,19 +419,25 @@ static void apply(const dsp_params_t *p)
         bandpass_t to;
         bandpass_design(&to, n.pitch_hz, bw);
         for (int i = 0; i < BP_STAGES; i++) {
-            s.bpg_from[i] = to_polar(&s.bp[s.bp_cur].bq[i]);
-            s.bpg_to[i] = to_polar(&to.bq[i]);
+            bp_glide_start(&s.bpg[i], &s.bp[s.bp_cur].bq[i], &to.bq[i]);
+            s.bp_to[i] = to.bq[i];
         }
-        s.bp_glide = XFADE_N;
+        s.glide_bp = true;
     } else if (n.filter != s.cur.filter || (bw && step)) {
         /* another filter, or a jump that a glide would sweep over the tones
          * in between: the new filter starts from rest in the other slot */
         s.bp_cur ^= 1;
         bandpass_design(&s.bp[s.bp_cur], n.pitch_hz, bw);
-        s.bp_xfade = XFADE_N;
+        s.fade_bp = true;
     }
     s.cur = n;
     stage_set(&s.st, &n);
+    if (s.glide_rot) {
+        s.rot_step = phasor((s.st.th - th_from) / XFADE_N);
+        s.st.rot = phasor(th_from);
+    }
+    if (s.fade_stage || s.glide_rot || s.fade_bp || s.glide_bp)
+        s.fade = XFADE_N;
 }
 
 void dsp_init(const dsp_params_t *p)
@@ -434,15 +467,13 @@ void dsp_set_params(const dsp_params_t *p)
     s.pending = *p;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     s.seq++;
-    s.pending_seq = s.seq;
 }
 
 static void take_pending(void)
 {
-    unsigned want = s.pending_seq;
-    if (want == s.taken_seq || s.xfade > 0 || s.glide > 0 || s.bp_xfade > 0 || s.bp_glide > 0)
-        return;
     unsigned a = s.seq;
+    if (a == s.taken_seq || s.fade > 0)
+        return;
     if (a & 1)
         return;                 /* writer busy, next block */
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -464,17 +495,27 @@ void dsp_process(const float *in, float *out, size_t n)
         s.dc_x1 = x;
         s.dc_y1 = y;
 
-        if (s.bp_glide > 0) {
-            float g = 1.0f - (float)--s.bp_glide / XFADE_N;    /* -> 1 */
-            for (int i = 0; i < BP_STAGES; i++)
-                glide_stage(&s.bp[s.bp_cur].bq[i], &s.bpg_from[i], &s.bpg_to[i], g);
+        /* fade: share of the old side, 1 -> 1/XFADE_N; a glide reaches its
+         * end on the last sample */
+        int left = s.fade;
+        float g_old = (float)left / XFADE_N;
+        bool last = left == 1;
+
+        if (s.glide_bp && left) {
+            for (int i = 0; i < BP_STAGES; i++) {
+                biquad_t *b = &s.bp[s.bp_cur].bq[i];
+                bp_glide_step(b, &s.bpg[i]);
+                if (last) {
+                    b->b0 = s.bp_to[i].b0;
+                    b->b2 = s.bp_to[i].b2;
+                    b->a1 = s.bp_to[i].a1;
+                    b->a2 = s.bp_to[i].a2;
+                }
+            }
         }
         float f = bandpass(&s.bp[s.bp_cur], y);
-        if (s.bp_xfade > 0) {
-            float g = (float)s.bp_xfade / XFADE_N;     /* 1 -> 0 */
-            f = f * (1.0f - g) + bandpass(&s.bp[s.bp_cur ^ 1], y) * g;
-            s.bp_xfade--;
-        }
+        if (s.fade_bp && left)
+            f = f * (1.0f - g_old) + bandpass(&s.bp[s.bp_cur ^ 1], y) * g_old;
 
         y = agc(f);
 
@@ -490,24 +531,20 @@ void dsp_process(const float *in, float *out, size_t n)
         s.hist_i[s.pos] = ad;
         s.hist_q[s.pos] = b;
 
-        if (s.glide > 0) {
-            float g = (float)--s.glide / XFADE_N;      /* -> 0 */
-            float th = s.st.th + g * (s.glide_from - s.st.th);
-            s.st.rot_c = cosf(th);
-            s.st.rot_s = sinf(th);
-        }
+        if (s.glide_rot && left)
+            s.st.rot = last ? phasor(s.st.th) : s.st.rot * s.rot_step;
 
         float complex zl, zr;
         stereo(&s.st, &zl, &zr);
         float l = crealf(zl), r = crealf(zr);
-        if (s.xfade > 0) {
+        if (s.fade_stage && left) {
             float complex ol, or_;
             stereo(&s.st_old, &ol, &or_);
-            float g = 1.0f - (float)s.xfade / XFADE_N;     /* 0 -> 1 */
-            l = fade(ol, zl, g, &s.xf_phi[0]);
-            r = fade(or_, zr, g, &s.xf_phi[1]);
-            s.xfade--;
+            l = fade(ol, zl, 1.0f - g_old, &s.xf_phi[0]);
+            r = fade(or_, zr, 1.0f - g_old, &s.xf_phi[1]);
         }
+        if (left)
+            s.fade--;
         out[2 * k] = limit(clampf(l, -4.0f, 4.0f));
         out[2 * k + 1] = limit(clampf(r, -4.0f, 4.0f));
     }
