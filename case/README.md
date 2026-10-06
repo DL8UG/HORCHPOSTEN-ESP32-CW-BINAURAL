@@ -5,8 +5,14 @@ Parametric enclosure for the ESP32-Audio-Kit V2.2 in OpenSCAD:
 
 ![Enclosure, exploded view](../docs/img/case-assembly.png)
 
-> The board positions in the model are **estimates**. Measure your board
-> and correct the values before the first print (see [Measuring](#measuring)).
+> **Draft:** this enclosure has not been printed or tested yet. Take it as
+> a solid base for your own design.
+>
+> The layout (one row of eight keys in front, jacks on the right, USB on
+> the left, the module antenna out over the back edge) is checked on a
+> V2.2 board marked A618. The millimetres come from a product photo with
+> dimensions and are **estimates**: measure your board and correct the
+> values before the first print (see [Measuring](#measuring)).
 
 ## Contents
 
@@ -35,7 +41,8 @@ Parametric enclosure for the ESP32-Audio-Kit V2.2 in OpenSCAD:
 
 All values are in the block "board (MEASURE)" at the top of the SCAD file.
 Coordinates are in mm, seen from the top of the board, origin at the front
-left corner of the PCB, front edge = the side with KEY1..KEY6.
+left corner of the PCB, front edge = the side with the row of keys (from
+the left: RST, BOOT, KEY1..KEY6).
 
 | Parameter | What to measure |
 |---|---|
@@ -43,10 +50,10 @@ left corner of the PCB, front edge = the side with KEY1..KEY6.
 | `holes`, `hole_d` | centres of the four mounting holes |
 | `under_h` | tallest part on the underside (solder pins) + 1 mm |
 | `over_h` | tallest part on the top + 1 mm |
-| `keys`, `key_top` | centre of each key; height of the key actuator above the PCB |
-| `pin_holes` | centres of RESET and BOOT |
-| `led` | centre of the green LED (GPIO22) |
-| `ports` | for both 3.5 mm jacks and both micro USB sockets: side, position along that side, centre height above the PCB, opening size |
+| `antenna` | x range of the module end that sticks out over the back edge, and how far it sticks out |
+| `key_row`, `key_pitch`, `key_top` | centre of RST; distance from key to key; height of the key actuator above the PCB. KEY1..KEY6 and the holes for RST and BOOT follow from these |
+| `led` | centre of the status LED (GPIO22) |
+| `ports` | for both 3.5 mm jacks (right side) and both micro USB sockets (left side): side, position along that side, centre height above the PCB, opening size |
 
 Check after editing: `part = "assembly"` shows the board dummy in the
 shell; jacks and USB plugs must line up with the openings.

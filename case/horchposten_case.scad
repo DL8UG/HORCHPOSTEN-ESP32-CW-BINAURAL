@@ -16,33 +16,42 @@
 part = "assembly";
 
 /* ---------- board (MEASURE) ---------- */
-pcb = [82, 73];            // PCB size x, y (maker: 82 x 73 +-0.2)
+// Start values from a product photo with dimensions (83 x 68 mm); the
+// layout (keys in front, jacks right, USB left, antenna out at the back)
+// is checked on a V2.2 A618 board, the millimetres are not.
+pcb = [83, 68];            // PCB size x, y
 pcb_t = 1.6;               // PCB thickness
-holes = [[3.5, 3.5], [78.5, 3.5], [3.5, 69.5], [78.5, 69.5]];  // mounting holes
+holes = [[3.3, 3.3], [79.7, 3.3], [3.3, 64.7], [79.7, 64.7]];  // mounting holes
 hole_d = 3.2;              // mounting hole diameter
 under_h = 4.0;             // room under the PCB (solder pins, battery connector)
 over_h = 11.0;             // room above the PCB (tallest part + margin)
+// the antenna end of the ESP32-A1S module sticks out over the back edge:
+// [x from, x to, how far out]
+antenna = [33.5, 48.5, 6.0];
 
-// keys KEY1..KEY6: centre x, y; height of the switch actuator top above the PCB
-keys = [[12, 8], [23.5, 8], [35, 8], [46.5, 8], [58, 8], [69.5, 8]];
-key_top = 5.0;
+// one row of eight keys along the front edge: RST, BOOT, KEY1..KEY6
+key_pitch = 8.5;
+key_row = [10.9, 4.0];     // centre of RST; the others follow at key_pitch
+key_top = 5.0;             // height of the switch actuator top above the PCB
+keys = [for (i = [2:7]) [key_row[0] + i * key_pitch, key_row[1]]];   // KEY1..KEY6
 // short / long press function, printed on the lid
 key_labels = [["MODE", "L/R"], ["FILTER", "AGC"], ["PITCH-", "WIDTH"],
               ["PITCH+", "AUTO"], ["VOL-", "GAIN"], ["VOL+", "MUTE"]];
 
-// RESET and BOOT: reachable with a paper clip
-pin_holes = [[8, 32], [8, 42]];
+// RST and BOOT: holes for a paper clip, no plungers (BOOT stops the codec
+// clock while it is held)
+pin_holes = [key_row, [key_row[0] + key_pitch, key_row[1]]];
 // status LED (GPIO22): hole for a piece of clear filament as light pipe
-led = [74, 30];
+led = [70, 58];
 
 // wall openings: [label, side, position along the side, centre height above
 // the PCB top, width, height, round?]; side: "left" (x 0), "right", "front"
 // (y 0), "back"
 ports = [
-    ["PHONES",  "left", 24, 3.0, 7.0, 7.0, true],
-    ["LINE IN", "left", 40, 3.0, 7.0, 7.0, true],
-    ["UART",    "back", 22, 1.8, 9.0, 4.5, false],
-    ["POWER",   "back", 60, 1.8, 9.0, 4.5, false],
+    ["LINE IN", "right", 44.2, 3.0, 7.0, 7.0, true],
+    ["PHONES",  "right", 55.2, 3.0, 7.0, 7.0, true],
+    ["POWER",   "left",  24.7, 1.8, 9.0, 4.5, false],
+    ["UART",    "left",  35.9, 1.8, 9.0, 4.5, false],
 ];
 
 /* ---------- enclosure ---------- */
@@ -61,7 +70,7 @@ foot_h = 0.8;
 foot_inset = 14;           // foot centre from the outer edges; clear of the standoffs
 key_hole_d = 6.6;          // lid guide for the plungers
 plunger_d = 6.0;           // 0.3 mm play on each side in the guide
-plunger_flange_d = 8.6;
+plunger_flange_d = 7.6;    // < key_pitch: neighbouring flanges must not touch
 plunger_flange_h = 1.2;
 plunger_above = 1.6;       // how far the plungers stand above the lid
 tube_press = 0.2;          // lid tubes this much longer than the room above the PCB
@@ -74,15 +83,18 @@ display_pos = [20, 30];    // front left corner of the window on the board
 display_size = [42, 32];
 
 /* ---------- derived ---------- */
-inner = [pcb[0] + 2 * clear, pcb[1] + 2 * clear];
+inner = [pcb[0] + 2 * clear, pcb[1] + 2 * clear + antenna[2]];   // room for the antenna
 outer = [inner[0] + 2 * wall, inner[1] + 2 * wall];
 pcb_z = floor_t + under_h;                 // PCB bottom
 pcb_top = pcb_z + pcb_t;
 shell_h = pcb_top + over_h;                // bottom shell height = lid underside
 off = [wall + clear, wall + clear];        // PCB origin in shell coordinates
-feet = [for (x = [foot_inset, outer[0] - foot_inset], y = [foot_inset, outer[1] - foot_inset]) [x, y]];
+// the back feet move forward with the antenna room, in line with the board
+feet = [for (x = [foot_inset, outer[0] - foot_inset],
+             y = [foot_inset, outer[1] - foot_inset - antenna[2]]) [x, y]];
 
 // a foot recess under a standoff would leave almost no floor under the insert
+assert(plunger_flange_d < key_pitch - 0.5, "plunger flanges touch: lower plunger_flange_d");
 for (f = feet, h = holes)
     assert(norm(f - (off + h)) >= (foot_d + standoff_d) / 2 + 0.5,
            str("foot at ", f, " runs into the standoff at ", off + h, ": raise foot_inset"));
@@ -193,19 +205,19 @@ module lid() {
 module lid_lettering() {
     top = shell_h + lid_t - engrave;
     translate([0, 0, top]) linear_extrude(engrave + 1) {
-        // name in the free area behind the keys
-        translate([outer[0] / 2, outer[1] - 16]) text("HORCHPOSTEN", size = 6, font = font, halign = "center");
-        translate([outer[0] / 2, outer[1] - 23]) text("ESP32 CW BINAURAL", size = 3.2, font = font, halign = "center");
-        translate([outer[0] / 2, outer[1] - 28]) text("by DL8UG", size = 2.4, font = "Liberation Sans", halign = "center");
-        // key functions: short press above, long press below it
+        // name in the free area in the middle
+        translate([outer[0] / 2, off[1] + 38]) text("HORCHPOSTEN", size = 6, font = font, halign = "center");
+        translate([outer[0] / 2, off[1] + 31]) text("ESP32 CW BINAURAL", size = 3.2, font = font, halign = "center");
+        translate([outer[0] / 2, off[1] + 26]) text("by DL8UG", size = 2.4, font = "Liberation Sans", halign = "center");
+        // key functions behind the keys: short press, long press behind it
         for (i = [0:len(keys) - 1]) {
             k = keys[i];
-            translate([off[0] + k[0], off[1] + k[1] + 6.2]) text(key_labels[i][0], size = 2.1, font = font, halign = "center");
-            translate([off[0] + k[0], off[1] + k[1] + 9.4]) text(key_labels[i][1], size = 1.9, font = "Liberation Sans", halign = "center");
+            translate([off[0] + k[0], off[1] + k[1] + 6.0]) text(key_labels[i][0], size = 1.7, font = font, halign = "center");
+            translate([off[0] + k[0], off[1] + k[1] + 8.8]) text(key_labels[i][1], size = 1.6, font = "Liberation Sans", halign = "center");
         }
-        // pin holes and LED
-        translate([off[0] + pin_holes[0][0] + 3, off[1] + pin_holes[0][1] - 1]) text("RST", size = 2.2, font = font);
-        translate([off[0] + pin_holes[1][0] + 3, off[1] + pin_holes[1][1] - 1]) text("BOOT", size = 2.2, font = font);
+        // pin holes, same rows as the key labels
+        translate([off[0] + pin_holes[0][0], off[1] + pin_holes[0][1] + 6.0]) text("RST", size = 1.7, font = font, halign = "center");
+        translate([off[0] + pin_holes[1][0], off[1] + pin_holes[1][1] + 6.0]) text("BOOT", size = 1.7, font = font, halign = "center");
     }
 }
 
@@ -226,11 +238,12 @@ module board_dummy() {
             cube([pcb[0], pcb[1], pcb_t]);
             for (h = holes) translate([h[0], h[1], -1]) cylinder(d = hole_d, h = 4);
         }
-        color("silver") translate([pcb[0] / 2 - 16, pcb[1] - 32, pcb_t]) cube([32, 30, 3.3]); // ESP32-A1S
-        color("black") for (k = keys) translate([k[0] - 3, k[1] - 3, pcb_t]) cube([6, 6, key_top]);
+        // ESP32-A1S with the antenna end over the back edge
+        color("silver") translate([antenna[0], pcb[1] - 26, pcb_t]) cube([antenna[1] - antenna[0], 26 + antenna[2], 3.3]);
+        color("black") for (k = concat(pin_holes, keys)) translate([k[0] - 3, k[1] - 3, pcb_t]) cube([6, 6, key_top]);
         color("dimgray") for (p = ports) {
-            if (p[1] == "left") translate([0, p[2] - 3, pcb_t]) cube([12, 6, p[3] * 2]);
-            if (p[1] == "back") translate([p[2] - 4, pcb[1] - 5, pcb_t]) cube([8, 5, 3]);
+            if (p[1] == "right") translate([pcb[0] - 14, p[2] - 3, pcb_t]) cube([14, 6, p[3] * 2]);
+            if (p[1] == "left") translate([0, p[2] - 4, pcb_t]) cube([5, 8, 3]);
         }
     }
 }

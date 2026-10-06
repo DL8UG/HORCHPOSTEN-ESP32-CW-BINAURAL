@@ -197,8 +197,10 @@ processed ones, so loudness doesn't decide the comparison:
 
 ## Enclosure
 
-A parametric 3D printable enclosure is in [case/](case/README.md). Measure
-your board before printing; the README there says what to measure.
+A parametric 3D printable enclosure is in [case/](case/README.md). It is
+a **draft**: not printed or tested yet, but a solid base for your own
+design. Measure your board before printing; the README there says what to
+measure.
 
 ## Feedback
 
