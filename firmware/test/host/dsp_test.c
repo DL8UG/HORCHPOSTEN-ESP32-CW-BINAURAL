@@ -3,6 +3,7 @@
  *
  * make -C firmware/test/host        run the checks
  * make -C firmware/test/host wav    also write stereo WAV files to listen to
+ *                                   (build/wav, emptied first)
  */
 #include "dsp.h"
 #include "pitch.h"
@@ -475,23 +476,92 @@ static void test_auto_pitch(void)
     free(buf);
 }
 
+/* ---- a setting changed every 1.5 s ---- */
+
+static const struct { const char *what; int key; int val; } steps[] = {
+    { "pitch 625 Hz", 'p', 625 }, { "pitch 650 Hz", 'p', 650 },
+    { "pitch jump to 800 Hz (as auto pitch may do)", 'p', 800 }, { "pitch 600 Hz", 'p', 600 },
+    { "mode 90 deg", 'm', DSP_MODE_IQ }, { "mode Haas", 'm', DSP_MODE_HAAS },
+    { "mode mono", 'm', DSP_MODE_MONO }, { "mode pitch", 'm', DSP_MODE_PITCH },
+    { "filter 250 Hz", 'f', DSP_FILTER_250 }, { "filter 100 Hz", 'f', DSP_FILTER_100 },
+    { "pitch 625 Hz with filter 100", 'p', 625 }, { "pitch 600 Hz with filter 100", 'p', 600 },
+    { "filter off", 'f', DSP_FILTER_OFF }, { "AGC off", 'a', 0 }, { "AGC on", 'a', 1 },
+    { "width wide", 'w', DSP_WIDTH_WIDE }, { "swap left/right", 's', 1 },
+};
+#define NSTEPS (sizeof(steps) / sizeof(steps[0]))
+#define STEP_GAP (DSP_FS * 3 / 2)
+#define STEPS_LEN ((NSTEPS + 2) * STEP_GAP)
+
+/* the steps as changes from p on, one every STEP_GAP samples */
+static void make_steps(const dsp_params_t *p, change_t ch[NSTEPS])
+{
+    dsp_params_t cur = *p;
+    for (size_t i = 0; i < NSTEPS; i++) {
+        switch (steps[i].key) {
+        case 'p': cur.pitch_hz = steps[i].val; break;
+        case 'm': cur.mode = (dsp_mode_t)steps[i].val; break;
+        case 'f': cur.filter = (dsp_filter_t)steps[i].val; break;
+        case 'a': cur.agc = steps[i].val; break;
+        case 'w': cur.width = (dsp_width_t)steps[i].val; break;
+        case 's': cur.swap = steps[i].val; break;
+        }
+        ch[i].at = (i + 1) * STEP_GAP;
+        ch[i].p = cur;
+    }
+}
+
+static void test_steps(void)
+{
+    /* every step on a clean tone: none may click (the listening example
+     * hides a click in the noise of the pile-up). A hard switch can fall
+     * where both sides happen to be equal, so the tone runs with four
+     * phases; the limit is the tone's own largest step plus 15 %. */
+    dsp_params_t p = defaults();
+    p.agc = true;
+    change_t ch[NSTEPS];
+    make_steps(&p, ch);
+    float jump[NSTEPS] = { 0 }, own = 0;
+    float *in = make_tone(600, 0.3f, 0, STEPS_LEN + 16, STEPS_LEN + 16);
+    for (int ph = 0; ph < 4; ph++) {
+        float *st = run_changes(&p, ch, NSTEPS, in + 3 * ph, STEPS_LEN);   /* 40 deg apart */
+        own = fmaxf(own, max_step(st, DSP_FS / 2, ch[0].at));
+        for (size_t i = 0; i < NSTEPS; i++)
+            jump[i] = fmaxf(jump[i], max_step(st, ch[i].at, ch[i].at + DSP_FS / 2));
+        free(st);
+    }
+    for (size_t i = 0; i < NSTEPS; i++)
+        CHECK(jump[i] < 1.15f * own, "step \"%s\": jump of %.3f, the tone moves %.3f",
+              steps[i].what, jump[i], own);
+    free(in);
+}
+
 /* ---- WAV files to listen to ---- */
 
-#define WAV_DIR "build/wav"
+static const char *wav_dir;
 
-/* open WAV_DIR/name; a failure counts as a test failure */
+/* open wav_dir/name; a failure counts as a test failure */
 static FILE *open_out(const char *name, const char *mode)
 {
-    char path[96];
-    snprintf(path, sizeof(path), WAV_DIR "/%s", name);
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s", wav_dir, name);
     FILE *f = fopen(path, mode);
     if (!f) {
         perror(path);
         failures++;
-    } else {
-        printf("wrote %s\n", path);
     }
     return f;
+}
+
+/* close f, counting a write error as a test failure */
+static void close_out(FILE *f, const char *name)
+{
+    bool bad = ferror(f);
+    if (fclose(f) || bad) {
+        printf("FAIL writing %s/%s\n", wav_dir, name);
+        failures++;
+    } else {
+        printf("wrote %s/%s\n", wav_dir, name);
+    }
 }
 
 static void write_wav(const char *name, const float *st, size_t frames)
@@ -511,11 +581,12 @@ static void write_wav(const char *name, const float *st, size_t frames)
         int16_t v = (int16_t)lrintf(fmaxf(-1, fminf(1, st[k])) * 32767);
         fwrite(&v, 2, 1, f);
     }
-    fclose(f);
+    close_out(f, name);
 }
 
-/* C   Q   T E S T, as dot units: 1 = key down */
-static const char CQ[] = "1110101110100000111011101011100000001110001000101010001110000000";
+/* C Q   T E S T, as dot units: 1 = key down; 3 between letters, 7 between words */
+static const char CQ[] = "11101011101" "000" "1110111010111" "0000000"
+                         "111" "000" "1" "000" "10101" "000" "111" "0000000";
 
 /* key state of a station sending CQ at wpm, started offset_s early */
 static float keying(int wpm, size_t k, float offset_s)
@@ -526,18 +597,20 @@ static float keying(int wpm, size_t k, float offset_s)
     return CQ[i] == '1' ? 1.0f : 0.0f;
 }
 
-/* add a keyed CW station to in[from..to) with soft keying edges (5 ms);
- * the key is released 40 ms before the end, so the station never stops
- * in the middle of a dot or dash */
+/* add a keyed CW station to in[from..to) with soft keying edges (5 ms).
+ * It stops at the first key-up of its last 4 dot units plus 40 ms, so it
+ * never cuts a dot or dash short and has died away by the end. */
 static void add_station(float *in, size_t from, size_t to, float f, float amp,
                         int wpm, float offset_s)
 {
-    const size_t release = DSP_FS / 25;
+    const size_t last = (size_t)(4 * 1.2f / wpm * DSP_FS) + DSP_FS / 25;
     float env = 0;
     double ph = 0;
+    bool stopped = false;
     for (size_t k = from; k < to; k++) {
-        float key = k + release < to ? keying(wpm, k - from, offset_s) : 0.0f;
-        env += (key - env) * 0.0125f;
+        float key = keying(wpm, k - from, offset_s);
+        stopped |= k + last >= to && key == 0.0f;
+        env += ((stopped ? 0.0f : key) - env) * 0.0125f;
         ph += 2.0 * M_PI * f / DSP_FS;
         in[k] += amp * env * (float)sin(ph);
     }
@@ -561,19 +634,36 @@ static float *scene_pileup(size_t n)
     return in;
 }
 
-static void wav_run(const char *name, const dsp_params_t *p, const change_t *ch,
-                    size_t nch, const float *in, size_t n)
+static float rms(const float *x, size_t n)
+{
+    double sum = 0;
+    for (size_t k = 0; k < n; k++)
+        sum += (double)x[k] * x[k];
+    return (float)sqrt(sum / n);
+}
+
+/* run the chain and write the result; returns its RMS level */
+static float wav_run(const char *name, const dsp_params_t *p, const change_t *ch,
+                     size_t nch, const float *in, size_t n)
 {
     float *out = run_changes(p, ch, nch, in, n);
     write_wav(name, out, n);
+    float level = rms(out, 2 * n);
     free(out);
+    return level;
 }
 
-static void wav_input(const char *name, const float *in, size_t n)
+/* write the input in both ears at the RMS level of the processed files,
+ * so a comparison is not won by loudness; never above 0.9 */
+static void wav_input(const char *name, const float *in, size_t n, float level)
 {
+    float pk = 0;
+    for (size_t k = 0; k < n; k++)
+        pk = fmaxf(pk, fabsf(in[k]));
+    float g = fminf(level / rms(in, n), 0.9f / pk);
     float *st = malloc(2 * n * sizeof(float));
     for (size_t k = 0; k < n; k++)
-        st[2 * k] = st[2 * k + 1] = in[k];
+        st[2 * k] = st[2 * k + 1] = g * in[k];
     write_wav(name, st, n);
     free(st);
 }
@@ -583,50 +673,44 @@ static void write_wavs(void)
     const size_t n = 12 * DSP_FS;
     dsp_params_t p = defaults();
     p.agc = true;
-    if ((mkdir("build", 0755) && errno != EEXIST) || (mkdir(WAV_DIR, 0755) && errno != EEXIST)) {
-        perror(WAV_DIR);
+    if (mkdir(wav_dir, 0755) && errno != EEXIST) {
+        perror(wav_dir);
         failures++;
         return;
     }
 
-    /* 1: the modes on the pile-up, input first for comparison */
-    float *in = scene_pileup(n);
-    wav_input("01_pileup_input.wav", in, n);
-    static const struct { const char *name; dsp_mode_t mode; } modes[] = {
-        { "02_pileup_mono.wav", DSP_MODE_MONO }, { "03_pileup_pitch.wav", DSP_MODE_PITCH },
-        { "04_pileup_iq90.wav", DSP_MODE_IQ }, { "05_pileup_haas.wav", DSP_MODE_HAAS },
-    };
-    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
-        dsp_params_t q = p;
-        q.mode = modes[i].mode;
-        wav_run(modes[i].name, &q, NULL, 0, in, n);
-    }
-
-    /* 2: pitch mode, the other widths (medium is the default: 03) */
+    /* 1: the pile-up in every mode, the other widths (medium is the
+     * default: 03) and the filters, the input for comparison */
     _Static_assert(DSP_WIDTH_COUNT == 3, "new width: add a WAV file");
-    static const struct { const char *name; dsp_width_t width; } widths[] = {
-        { "06_width_narrow.wav", DSP_WIDTH_NARROW }, { "07_width_wide.wav", DSP_WIDTH_WIDE },
-    };
-    for (size_t i = 0; i < sizeof(widths) / sizeof(widths[0]); i++) {
-        dsp_params_t q = p;
-        q.width = widths[i].width;
-        wav_run(widths[i].name, &q, NULL, 0, in, n);
-    }
-
-    /* 3: pitch mode, the filters */
     _Static_assert(DSP_FILTER_COUNT == 4, "new filter: add a WAV file");
-    static const struct { const char *name; dsp_filter_t filter; } filters[] = {
-        { "08_filter_500.wav", DSP_FILTER_500 }, { "09_filter_250.wav", DSP_FILTER_250 },
-        { "10_filter_100.wav", DSP_FILTER_100 },
+    static const struct {
+        const char *name; dsp_mode_t mode; dsp_width_t width; dsp_filter_t filter;
+    } runs[] = {
+        { "02_pileup_mono.wav", DSP_MODE_MONO, DSP_WIDTH_MEDIUM, DSP_FILTER_OFF },
+        { "03_pileup_pitch.wav", DSP_MODE_PITCH, DSP_WIDTH_MEDIUM, DSP_FILTER_OFF },
+        { "04_pileup_iq90.wav", DSP_MODE_IQ, DSP_WIDTH_MEDIUM, DSP_FILTER_OFF },
+        { "05_pileup_haas.wav", DSP_MODE_HAAS, DSP_WIDTH_MEDIUM, DSP_FILTER_OFF },
+        { "06_width_narrow.wav", DSP_MODE_PITCH, DSP_WIDTH_NARROW, DSP_FILTER_OFF },
+        { "07_width_wide.wav", DSP_MODE_PITCH, DSP_WIDTH_WIDE, DSP_FILTER_OFF },
+        { "08_filter_500.wav", DSP_MODE_PITCH, DSP_WIDTH_MEDIUM, DSP_FILTER_500 },
+        { "09_filter_250.wav", DSP_MODE_PITCH, DSP_WIDTH_MEDIUM, DSP_FILTER_250 },
+        { "10_filter_100.wav", DSP_MODE_PITCH, DSP_WIDTH_MEDIUM, DSP_FILTER_100 },
     };
-    for (size_t i = 0; i < sizeof(filters) / sizeof(filters[0]); i++) {
+    float *in = scene_pileup(n);
+    float level = 0;
+    for (size_t i = 0; i < sizeof(runs) / sizeof(runs[0]); i++) {
         dsp_params_t q = p;
-        q.filter = filters[i].filter;
-        wav_run(filters[i].name, &q, NULL, 0, in, n);
+        q.mode = runs[i].mode;
+        q.width = runs[i].width;
+        q.filter = runs[i].filter;
+        float lv = wav_run(runs[i].name, &q, NULL, 0, in, n);
+        if (i == 0)
+            level = lv;
     }
+    wav_input("01_pileup_input.wav", in, n, level);
     free(in);
 
-    /* 4: one steady tone gliding 300 -> 1000 Hz: travels from left to right,
+    /* 2: one steady tone gliding 300 -> 1000 Hz: travels from left to right,
      * in the middle at the centre pitch of 600 Hz */
     in = make_noise(0.005f, n);
     double ph = 0;
@@ -638,52 +722,29 @@ static void write_wavs(void)
     wav_run("11_sweep_300_1000_pitch.wav", &p, NULL, 0, in, n);
     free(in);
 
-    /* 5: AGC: weak station, pause, very strong one, pause, weak again */
+    /* 3: AGC: weak station, pause, very strong one, pause, weak again */
     in = make_noise(0.003f, n);
     add_station(in, 0, 4 * DSP_FS, 600, 0.01f, 20, 0.0f);
     add_station(in, 5 * DSP_FS, 8 * DSP_FS, 650, 0.6f, 24, 0.0f);
     add_station(in, 9 * DSP_FS, n, 600, 0.01f, 20, 0.0f);
-    wav_input("12_agc_input.wav", in, n);
-    wav_run("13_agc_on.wav", &p, NULL, 0, in, n);
+    level = wav_run("13_agc_on.wav", &p, NULL, 0, in, n);
     dsp_params_t q = p;
     q.agc = false;
     wav_run("14_agc_off.wav", &q, NULL, 0, in, n);
+    wav_input("12_agc_input.wav", in, n, level);
     free(in);
 
-    /* 6: a change every 1.5 s while the pile-up goes on; must never click */
-    static const struct { const char *what; int key; int val; } steps[] = {
-        { "pitch 625 Hz", 'p', 625 }, { "pitch 650 Hz", 'p', 650 },
-        { "pitch 800 Hz (auto pitch jump)", 'p', 800 }, { "pitch 600 Hz", 'p', 600 },
-        { "mode 90 deg", 'm', DSP_MODE_IQ }, { "mode Haas", 'm', DSP_MODE_HAAS },
-        { "mode mono", 'm', DSP_MODE_MONO }, { "mode pitch", 'm', DSP_MODE_PITCH },
-        { "filter 250 Hz", 'f', DSP_FILTER_250 }, { "filter 100 Hz", 'f', DSP_FILTER_100 },
-        { "pitch 650 Hz with filter 100", 'p', 650 }, { "filter off", 'f', DSP_FILTER_OFF },
-        { "AGC off", 'a', 0 }, { "AGC on", 'a', 1 },
-        { "width wide", 'w', DSP_WIDTH_WIDE }, { "swap left/right", 's', 1 },
-    };
-    const size_t nst = sizeof(steps) / sizeof(steps[0]), gap = DSP_FS * 3 / 2;
-    const size_t nc = (nst + 2) * gap;
-    in = scene_pileup(nc);
-    change_t ch[sizeof(steps) / sizeof(steps[0])];
-    dsp_params_t cur = p;
+    /* 4: the steps of test_steps on the pile-up, with their timeline */
+    change_t ch[NSTEPS];
+    make_steps(&p, ch);
     FILE *log = open_out("15_changes.txt", "w");
-    for (size_t i = 0; i < nst; i++) {
-        switch (steps[i].key) {
-        case 'p': cur.pitch_hz = steps[i].val; break;
-        case 'm': cur.mode = (dsp_mode_t)steps[i].val; break;
-        case 'f': cur.filter = (dsp_filter_t)steps[i].val; break;
-        case 'a': cur.agc = steps[i].val; break;
-        case 'w': cur.width = (dsp_width_t)steps[i].val; break;
-        case 's': cur.swap = steps[i].val; break;
-        }
-        ch[i].at = (i + 1) * gap;
-        ch[i].p = cur;
-        if (log)
+    if (log) {
+        for (size_t i = 0; i < NSTEPS; i++)
             fprintf(log, "%5.1f s  %s\n", (double)ch[i].at / DSP_FS, steps[i].what);
+        close_out(log, "15_changes.txt");
     }
-    if (log)
-        fclose(log);
-    wav_run("15_changes.wav", &p, ch, nst, in, nc);
+    in = scene_pileup(STEPS_LEN);
+    wav_run("15_changes.wav", &p, ch, NSTEPS, in, STEPS_LEN);
     free(in);
 }
 
@@ -699,8 +760,14 @@ int main(int argc, char **argv)
     test_pitch_change();
     test_filter_retune();
     test_auto_pitch();
-    if (argc > 1 && strcmp(argv[1], "--wav") == 0)
+    test_steps();
+    if (argc == 3 && strcmp(argv[1], "--wav") == 0) {
+        wav_dir = argv[2];
         write_wavs();
+    } else if (argc > 1) {
+        printf("usage: %s [--wav DIR]\n", argv[0]);
+        return 2;
+    }
     printf("%s (%d failures)\n", failures ? "FAILED" : "all tests passed", failures);
     return failures ? 1 : 0;
 }

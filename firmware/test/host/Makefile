@@ -8,7 +8,8 @@ test: build/dsp_test
 	./build/dsp_test
 
 wav: build/dsp_test
-	./build/dsp_test --wav
+	rm -rf build/wav
+	./build/dsp_test --wav build/wav
 
 build/dsp_test: $(OBJS)
 	$(CC) -o $@ $^ -lm

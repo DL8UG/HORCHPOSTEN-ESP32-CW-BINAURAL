@@ -169,11 +169,12 @@ tested on the PC:
 
 ```sh
 make -C firmware/test/host       # checks
-make -C firmware/test/host wav   # plus WAV files to listen to (build/wav/)
+make -C firmware/test/host wav   # plus WAV files to listen to (build/wav/, emptied first)
 ```
 
 The WAV files (16 kHz stereo, listen with headphones) show each part of
-the signal chain:
+the signal chain. The input files are brought to the level of the
+processed ones, so loudness doesn't decide the comparison:
 
 | Files | What to listen for |
 |---|---|
@@ -182,7 +183,7 @@ the signal chain:
 | `08`–`10` filter | pitch mode with 500 / 250 / 100 Hz |
 | `11` sweep | one tone gliding from 300 to 1000 Hz: travels from left to right, in the middle at 600 Hz |
 | `12`–`14` AGC | weak station, a very strong one, weak again: the input, AGC on, AGC off |
-| `15` changes | a setting changed every 1.5 s (list in `15_changes.txt`); no change may click |
+| `15` changes | a setting changed every 1.5 s on the pile-up (list in `15_changes.txt`); the checks run the same changes on a clean tone and fail on any click |
 
 ## Enclosure
 
