@@ -157,7 +157,7 @@ Both ears the same, for comparison.
 
 ## Flashing
 
-Each [release](https://github.com/DL8UG/Horchposten-ESP32-CW-Binaural/releases) has `horchposten-vX.Y.Z-merged.bin`, one
+Each [release](https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/releases) has `horchposten-vX.Y.Z-merged.bin`, one
 image for address 0x0:
 
 ```sh
@@ -212,7 +212,7 @@ measure.
 
 ## Feedback
 
-Please open a [GitHub issue](https://github.com/DL8UG/Horchposten-ESP32-CW-Binaural/issues) – with the firmware version and
+Please open a [GitHub issue](https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/issues) – with the firmware version and
 codec from the serial log, your transceiver, and what you did.
 
 ## License

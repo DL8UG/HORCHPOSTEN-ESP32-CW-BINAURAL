@@ -42,5 +42,5 @@ audio from a PC; not yet with a transceiver.
 - Enclosure: dimensions from a product photo, not measured; not printed
   or tested yet.
 
-[Unreleased]: https://github.com/DL8UG/Horchposten-ESP32-CW-Binaural/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/DL8UG/Horchposten-ESP32-CW-Binaural/releases/tag/v0.1.0
+[Unreleased]: https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/releases/tag/v0.1.0
