@@ -8,7 +8,6 @@ test: build/dsp_test
 	./build/dsp_test
 
 wav: build/dsp_test
-	mkdir -p build/wav
 	./build/dsp_test --wav
 
 build/dsp_test: $(OBJS)

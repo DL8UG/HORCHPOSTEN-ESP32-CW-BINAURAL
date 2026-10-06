@@ -176,11 +176,11 @@ the signal chain:
 | Files | What to listen for |
 |---|---|
 | `01`–`05` pile-up | three CW stations (480, 600, 760 Hz) in noise: the input, then mono, pitch, 90° and Haas |
-| `06`–`08` width | pitch mode narrow / medium / wide on the same pile-up |
-| `09`–`11` filter | pitch mode with 500 / 250 / 100 Hz |
-| `12` sweep | one tone gliding from 300 to 1000 Hz: travels from left to right, in the middle at 600 Hz |
-| `13`–`15` AGC | weak station, a very strong one, weak again: the input, AGC on, AGC off |
-| `16` changes | a setting changed every 1.5 s (list in `16_changes.txt`); no change may click |
+| `06`–`07` width | pitch mode narrow / wide on the same pile-up (medium is the default: `03`) |
+| `08`–`10` filter | pitch mode with 500 / 250 / 100 Hz |
+| `11` sweep | one tone gliding from 300 to 1000 Hz: travels from left to right, in the middle at 600 Hz |
+| `12`–`14` AGC | weak station, a very strong one, weak again: the input, AGC on, AGC off |
+| `15` changes | a setting changed every 1.5 s (list in `15_changes.txt`); no change may click |
 
 ## Enclosure
 

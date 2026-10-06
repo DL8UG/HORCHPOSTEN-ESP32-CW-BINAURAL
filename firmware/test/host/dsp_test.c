@@ -7,11 +7,13 @@
 #include "dsp.h"
 #include "pitch.h"
 
+#include <errno.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -433,14 +435,28 @@ static void test_auto_pitch(void)
 
 /* ---- WAV files to listen to ---- */
 
+#define WAV_DIR "build/wav"
+
+/* open WAV_DIR/name; a failure counts as a test failure */
+static FILE *open_out(const char *name, const char *mode)
+{
+    char path[96];
+    snprintf(path, sizeof(path), WAV_DIR "/%s", name);
+    FILE *f = fopen(path, mode);
+    if (!f) {
+        perror(path);
+        failures++;
+    } else {
+        printf("wrote %s\n", path);
+    }
+    return f;
+}
+
 static void write_wav(const char *name, const float *st, size_t frames)
 {
-    FILE *f = fopen(name, "wb");
-    if (!f) {
-        perror(name);
-        failures++;
+    FILE *f = open_out(name, "wb");
+    if (!f)
         return;
-    }
     uint32_t data = (uint32_t)frames * 4, riff = 36 + data, fs = DSP_FS, br = DSP_FS * 4;
     uint32_t fmt_len = 16;
     uint16_t pcm = 1, ch = 2, align = 4, bits = 16;
@@ -454,30 +470,34 @@ static void write_wav(const char *name, const float *st, size_t frames)
         fwrite(&v, 2, 1, f);
     }
     fclose(f);
-    printf("wrote %s\n", name);
 }
 
 /* C   Q   T E S T, as dot units: 1 = key down */
 static const char CQ[] = "1110101110100000111011101011100000001110001000101010001110000000";
 
-/* key state of a station sending bits at wpm, started offset_s early */
-static float keying(const char *bits, int wpm, size_t k, float offset_s)
+/* key state of a station sending CQ at wpm, started offset_s early */
+static float keying(int wpm, size_t k, float offset_s)
 {
     float dot = 1.2f / wpm;
     float t = (float)k / DSP_FS + offset_s;
-    size_t len = strlen(bits);
-    size_t i = (size_t)(t / dot) % len;
-    return bits[i] == '1' ? 1.0f : 0.0f;
+    size_t i = (size_t)(t / dot) % (sizeof(CQ) - 1);
+    return CQ[i] == '1' ? 1.0f : 0.0f;
 }
 
-/* add a keyed CW station to in[from..to) with soft keying edges (5 ms) */
+/* add a keyed CW station to in[from..to) with soft keying edges (5 ms);
+ * the key is released 40 ms before the end, so the station never stops
+ * in the middle of a dot or dash */
 static void add_station(float *in, size_t from, size_t to, float f, float amp,
                         int wpm, float offset_s)
 {
+    const size_t release = DSP_FS / 25;
     float env = 0;
+    double ph = 0;
     for (size_t k = from; k < to; k++) {
-        env += (keying(CQ, wpm, k - from, offset_s) - env) * 0.0125f;
-        in[k] += amp * env * sinf(2.0f * (float)M_PI * f * k / DSP_FS);
+        float key = k + release < to ? keying(wpm, k - from, offset_s) : 0.0f;
+        env += (key - env) * 0.0125f;
+        ph += 2.0 * M_PI * f / DSP_FS;
+        in[k] += amp * env * (float)sin(ph);
     }
 }
 
@@ -503,9 +523,7 @@ static void wav_run(const char *name, const dsp_params_t *p, const change_t *ch,
                     size_t nch, const float *in, size_t n)
 {
     float *out = run_changes(p, ch, nch, in, n);
-    char path[96];
-    snprintf(path, sizeof(path), "build/wav/%s", name);
-    write_wav(path, out, n);
+    write_wav(name, out, n);
     free(out);
 }
 
@@ -514,9 +532,7 @@ static void wav_input(const char *name, const float *in, size_t n)
     float *st = malloc(2 * n * sizeof(float));
     for (size_t k = 0; k < n; k++)
         st[2 * k] = st[2 * k + 1] = in[k];
-    char path[96];
-    snprintf(path, sizeof(path), "build/wav/%s", name);
-    write_wav(path, st, n);
+    write_wav(name, st, n);
     free(st);
 }
 
@@ -525,6 +541,11 @@ static void write_wavs(void)
     const size_t n = 12 * DSP_FS;
     dsp_params_t p = defaults();
     p.agc = true;
+    if ((mkdir("build", 0755) && errno != EEXIST) || (mkdir(WAV_DIR, 0755) && errno != EEXIST)) {
+        perror(WAV_DIR);
+        failures++;
+        return;
+    }
 
     /* 1: the modes on the pile-up, input first for comparison */
     float *in = scene_pileup(n);
@@ -539,20 +560,27 @@ static void write_wavs(void)
         wav_run(modes[i].name, &q, NULL, 0, in, n);
     }
 
-    /* 2: pitch mode, the three widths */
-    static const char *widths[] = { "06_width_narrow.wav", "07_width_medium.wav", "08_width_wide.wav" };
-    for (int w = 0; w < DSP_WIDTH_COUNT; w++) {
+    /* 2: pitch mode, the other widths (medium is the default: 03) */
+    _Static_assert(DSP_WIDTH_COUNT == 3, "new width: add a WAV file");
+    static const struct { const char *name; dsp_width_t width; } widths[] = {
+        { "06_width_narrow.wav", DSP_WIDTH_NARROW }, { "07_width_wide.wav", DSP_WIDTH_WIDE },
+    };
+    for (size_t i = 0; i < sizeof(widths) / sizeof(widths[0]); i++) {
         dsp_params_t q = p;
-        q.width = (dsp_width_t)w;
-        wav_run(widths[w], &q, NULL, 0, in, n);
+        q.width = widths[i].width;
+        wav_run(widths[i].name, &q, NULL, 0, in, n);
     }
 
     /* 3: pitch mode, the filters */
-    static const char *filters[] = { "09_filter_500.wav", "10_filter_250.wav", "11_filter_100.wav" };
-    for (int f = DSP_FILTER_500; f < DSP_FILTER_COUNT; f++) {
+    _Static_assert(DSP_FILTER_COUNT == 4, "new filter: add a WAV file");
+    static const struct { const char *name; dsp_filter_t filter; } filters[] = {
+        { "08_filter_500.wav", DSP_FILTER_500 }, { "09_filter_250.wav", DSP_FILTER_250 },
+        { "10_filter_100.wav", DSP_FILTER_100 },
+    };
+    for (size_t i = 0; i < sizeof(filters) / sizeof(filters[0]); i++) {
         dsp_params_t q = p;
-        q.filter = (dsp_filter_t)f;
-        wav_run(filters[f - 1], &q, NULL, 0, in, n);
+        q.filter = filters[i].filter;
+        wav_run(filters[i].name, &q, NULL, 0, in, n);
     }
     free(in);
 
@@ -565,7 +593,7 @@ static void write_wavs(void)
         ph += 2.0 * M_PI * f / DSP_FS;
         in[k] += 0.1f * (float)sin(ph);
     }
-    wav_run("12_sweep_300_1000_pitch.wav", &p, NULL, 0, in, n);
+    wav_run("11_sweep_300_1000_pitch.wav", &p, NULL, 0, in, n);
     free(in);
 
     /* 5: AGC: weak station, pause, very strong one, pause, weak again */
@@ -573,11 +601,11 @@ static void write_wavs(void)
     add_station(in, 0, 4 * DSP_FS, 600, 0.01f, 20, 0.0f);
     add_station(in, 5 * DSP_FS, 8 * DSP_FS, 650, 0.6f, 24, 0.0f);
     add_station(in, 9 * DSP_FS, n, 600, 0.01f, 20, 0.0f);
-    wav_input("13_agc_input.wav", in, n);
-    wav_run("14_agc_on.wav", &p, NULL, 0, in, n);
+    wav_input("12_agc_input.wav", in, n);
+    wav_run("13_agc_on.wav", &p, NULL, 0, in, n);
     dsp_params_t q = p;
     q.agc = false;
-    wav_run("15_agc_off.wav", &q, NULL, 0, in, n);
+    wav_run("14_agc_off.wav", &q, NULL, 0, in, n);
     free(in);
 
     /* 6: a change every 1.5 s while the pile-up goes on; must never click */
@@ -596,7 +624,7 @@ static void write_wavs(void)
     in = scene_pileup(nc);
     change_t ch[sizeof(steps) / sizeof(steps[0])];
     dsp_params_t cur = p;
-    FILE *log = fopen("build/wav/16_changes.txt", "w");
+    FILE *log = open_out("15_changes.txt", "w");
     for (size_t i = 0; i < nst; i++) {
         switch (steps[i].key) {
         case 'p': cur.pitch_hz = steps[i].val; break;
@@ -611,11 +639,9 @@ static void write_wavs(void)
         if (log)
             fprintf(log, "%5.1f s  %s\n", (double)ch[i].at / DSP_FS, steps[i].what);
     }
-    if (log) {
+    if (log)
         fclose(log);
-        printf("wrote build/wav/16_changes.txt\n");
-    }
-    wav_run("16_changes.wav", &p, ch, nst, in, nc);
+    wav_run("15_changes.wav", &p, ch, nst, in, nc);
     free(in);
 }
 
