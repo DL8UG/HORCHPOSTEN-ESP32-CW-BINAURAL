@@ -430,6 +430,48 @@ static void test_auto_pitch(void)
     float hz;
     CHECK(!pitch_detect(buf, n, DSP_FS, DSP_PITCH_MIN, DSP_PITCH_MAX, &hz),
           "auto pitch: found %.1f Hz in pure noise", hz);
+
+    /* white noise, and behind the transceiver's own CW filter, where most
+     * of the searched band is stop band: a noise peak must not count, a
+     * tone must. The signal chain with a band pass stands in for the
+     * transceiver's filter. */
+    static const struct { dsp_filter_t flt; int fc; } trx[] = {
+        { DSP_FILTER_OFF, 600 }, { DSP_FILTER_250, 600 }, { DSP_FILTER_100, 600 },
+        { DSP_FILTER_250, 350 }, { DSP_FILTER_100, 950 },
+    };
+    const size_t settle = DSP_FS / 10;
+    float *in = malloc((settle + n) * sizeof(float));
+    float *st = malloc(2 * (settle + n) * sizeof(float));
+    for (size_t t = 0; t < sizeof(trx) / sizeof(trx[0]); t++) {
+        dsp_params_t p = defaults();
+        p.mode = DSP_MODE_MONO;
+        p.filter = trx[t].flt;
+        p.pitch_hz = trx[t].fc;
+        int found = 0, missed = 0;
+        const int runs = 200;
+        for (int r = 0; r < runs; r++) {
+            float tone = r % 2 ? 0.03f : 0.0f;      /* odd runs: a tone at fc + 10 Hz */
+            for (size_t k = 0; k < settle + n; k++)
+                in[k] = 0.1f * noise()
+                      + tone * sinf(2.0f * (float)M_PI * (trx[t].fc + 10) * k / DSP_FS);
+            dsp_init(&p);
+            dsp_process(in, st, settle + n);
+            for (size_t k = 0; k < n; k++)
+                buf[k] = st[2 * (settle + k)];
+            bool ok = pitch_detect(buf, n, DSP_FS, DSP_PITCH_MIN, DSP_PITCH_MAX, &hz);
+            if (tone == 0.0f)
+                found += ok;
+            else
+                missed += !ok || fabsf(hz - (trx[t].fc + 10)) > 5.0f;
+        }
+        int bw = dsp_filter_bw_hz(trx[t].flt);
+        CHECK(found == 0, "auto pitch behind a %d Hz filter at %d Hz: noise taken as a tone "
+              "in %d of %d runs", bw, trx[t].fc, found, runs / 2);
+        CHECK(missed == 0, "auto pitch behind a %d Hz filter at %d Hz: tone missed "
+              "in %d of %d runs", bw, trx[t].fc, missed, runs / 2);
+    }
+    free(st);
+    free(in);
     free(buf);
 }
 

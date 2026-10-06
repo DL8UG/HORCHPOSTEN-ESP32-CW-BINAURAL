@@ -11,7 +11,7 @@
 /*
  * Search fmin..fmax Hz (sample rate fs) for the strongest tone.
  * Returns true and the frequency in *hz if the peak stands at least
- * 14 dB above the median of the searched band.
+ * 14 dB above the noise beside it (20..60 Hz away).
  * The buffer is overwritten (windowed).
  */
 bool pitch_detect(float *buf, size_t n, int fs, int fmin, int fmax, float *hz);

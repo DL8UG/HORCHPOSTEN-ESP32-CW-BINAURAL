@@ -134,7 +134,8 @@ Both ears the same, for comparison.
   level between weak and strong signals over up to about 35 dB.
 - **Auto pitch** (KEY4 long): listens for 0.3 s and sets the centre pitch
   to the strongest tone between 300 and 1000 Hz, if it stands at least
-  14 dB above the rest of the band.
+  14 dB above the noise 20–60 Hz beside it. This also works behind a
+  narrow CW filter in the transceiver.
 
 ## Flashing
 
