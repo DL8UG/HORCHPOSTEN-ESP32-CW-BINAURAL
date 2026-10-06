@@ -6,8 +6,14 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
-#define LED_ON  (CONFIG_HORCH_LED_ACTIVE_LOW ? 0 : 1)
-#define LED_OFF (CONFIG_HORCH_LED_ACTIVE_LOW ? 1 : 0)
+/* a bool option set to n is not defined at all in sdkconfig.h */
+#if CONFIG_HORCH_LED_ACTIVE_LOW
+#define LED_ON  0
+#define LED_OFF 1
+#else
+#define LED_ON  1
+#define LED_OFF 0
+#endif
 
 static QueueHandle_t s_q;
 
