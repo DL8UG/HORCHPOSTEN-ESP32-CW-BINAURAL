@@ -268,7 +268,7 @@ module lid_lettering() {
         // name in the free area in the middle
         translate([outer[0] / 2, off[1] + 45]) text("HORCHPOSTEN", size = 7.5, font = font, halign = "center");
         translate([outer[0] / 2, off[1] + 37]) text("ESP32 CW BINAURAL", size = 4.2, font = font, halign = "center");
-        translate([outer[0] / 2, off[1] + 31]) text("by DL8UG", size = 3.0, font = "Liberation Sans", halign = "center");
+        translate([outer[0] / 2, off[1] + 30.5]) text("by DL8UG", size = 4.2, font = "Liberation Sans", halign = "center");
         // functions behind the row of eight positions (RST, BOOT, KEY1..KEY6):
         // short press, long press behind it; every second position one row
         // further back, so neighbouring labels get twice the key pitch
@@ -276,9 +276,9 @@ module lid_lettering() {
         labels = concat([["RST", ""], ["BOOT", ""]], key_labels);
         for (i = [0:len(all) - 1]) {
             k = all[i];
-            dy = i % 2 == 0 ? 0 : 7.0;
-            translate([off[0] + k[0], off[1] + k[1] + 6.0 + dy]) text(labels[i][0], size = 2.6, font = font, halign = "center");
-            translate([off[0] + k[0], off[1] + k[1] + 9.5 + dy]) text(labels[i][1], size = 2.3, font = "Liberation Sans", halign = "center");
+            dy = i % 2 == 0 ? 0 : 8.5;
+            translate([off[0] + k[0], off[1] + k[1] + 6.0 + dy]) text(labels[i][0], size = 3.0, font = font, halign = "center");
+            translate([off[0] + k[0], off[1] + k[1] + 10.0 + dy]) text(labels[i][1], size = 2.7, font = "Liberation Sans", halign = "center");
         }
     }
 }
