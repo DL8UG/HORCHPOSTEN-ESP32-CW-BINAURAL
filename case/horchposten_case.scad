@@ -49,8 +49,8 @@ led = [70, 58];
 // (y 0), "back"; label "mic", "phones" and "power" draw a symbol, anything
 // else is printed as text
 ports = [
-    ["mic",    "right", 44.2, 3.0, 7.0, 7.0, true],     // LINE IN
-    ["phones", "right", 55.2, 3.0, 7.0, 7.0, true],
+    ["mic",    "right", 44.2, 2.0, 7.0, 9.0, false],    // LINE IN; 2 mm extra
+    ["phones", "right", 55.2, 2.0, 7.0, 9.0, false],    // room below the plug
     ["power",  "left",  21.7, 1.8, 11.0, 6.5, false],
     ["UART",   "left",  35.9, 1.8, 11.0, 6.5, false],
 ];
@@ -117,7 +117,9 @@ module port_cut(p) {
     len = wall + clear + 2;
     module shape() {
         if (p[6]) cylinder(d = w, h = len);
-        else hull() for (s = [-1, 1]) translate([s * (w - h) / 2, 0, 0]) cylinder(d = h, h = len);
+        // slot, rounded on its short sides; x along the wall, y upwards
+        else hull() for (s = [-1, 1])
+            translate(w >= h ? [s * (w - h) / 2, 0, 0] : [0, s * (h - w) / 2, 0]) cylinder(d = min(w, h), h = len);
     }
     if (side == "left")
         translate([-1, off[1] + pos, zc]) rotate([0, 90, 0]) rotate([0, 0, 90]) shape();
@@ -179,7 +181,7 @@ module sym_mic(h, s = sym_stroke) {
 module port_label_2d(name, h) {
     if (name == "power") sym_power(h);
     else if (name == "phones") sym_phones(h);
-    else if (name == "mic") sym_mic(h);
+    else if (name == "mic") sym_mic(h, min(sym_stroke, (h - 1) / 5));   // thinner when small
     else text(name, size = 0.95 * h, font = font, halign = "center");
 }
 
@@ -187,9 +189,9 @@ module port_label_2d(name, h) {
 // to the floor is too low
 module port_label(p) {
     side = p[1]; pos = p[2]; zc = pcb_top + p[3];
-    room_down = zc - p[5] / 2 - 1.0 - 0.8;
+    room_down = zc - p[5] / 2 - 0.6 - 0.6;
     lh = min(port_label_h, room_down);
-    z = zc - p[5] / 2 - 1.0 - lh;
+    z = zc - p[5] / 2 - 0.6 - lh;
     if (lh >= 2) {
         if (side == "left")
             translate([engrave - 0.01, off[1] + pos, z]) rotate([90, 0, -90])
@@ -302,7 +304,7 @@ module board_dummy() {
         color("silver") translate([antenna[0], pcb[1] - 26, pcb_t]) cube([antenna[1] - antenna[0], 26 + antenna[2], 3.3]);
         color("black") for (k = concat(pin_holes, keys)) translate([k[0] - 3, k[1] - 3, pcb_t]) cube([6, 6, key_top]);
         color("dimgray") for (p = ports) {
-            if (p[1] == "right") translate([pcb[0] - 14, p[2] - 3, pcb_t]) cube([14, 6, p[3] * 2]);
+            if (p[1] == "right") translate([pcb[0] - 14, p[2] - 3, pcb_t]) cube([14, 6, 6]);   // 3.5 mm jack, centre 3 mm above the PCB
             if (p[1] == "left") translate([0, p[2] - 4, pcb_t]) cube([5, 8, 3]);
         }
     }
