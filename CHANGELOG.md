@@ -6,14 +6,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
+Tested on an ESP32-Audio-Kit V2.2 (A618, ES8388) with a transceiver; the
+enclosure is printed and fits. The firmware is the same as in 0.1.0.
+
+### Added
+
+- Pictures of both enclosure sides in the enclosure README.
+- README: plans, an optional display for a second version.
+
 ### Changed
 
-- Tested with a transceiver on the V2.2 board (A618).
-- Enclosure printed and fitted on a V2.2 board (A618); no longer a draft.
+- Enclosure: no longer a draft; printed and fitted on the V2.2 board
+  (A618).
 - Enclosure: key plungers 8 mm longer; both USB openings 2 mm wider and
   higher, POWER 3 mm further forward; jack openings 2 mm larger (9 mm);
   larger lid lettering, key labels in two staggered rows; wall labels
   below the openings, larger, with symbols for power, phones and line in.
+
+### Known issues
+
+- The two on-board microphones share the line input: remove them (see
+  the README, Hardware).
+- AC101 boards are untested; their volume steps are hard (no ramp).
 
 ## [0.1.0] - 2026-10-06
 
@@ -51,5 +67,6 @@ audio from a PC; not yet with a transceiver.
 - Enclosure: dimensions from a product photo, not measured; not printed
   or tested yet.
 
-[Unreleased]: https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/releases/tag/v0.1.0
