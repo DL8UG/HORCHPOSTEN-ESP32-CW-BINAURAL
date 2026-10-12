@@ -160,16 +160,22 @@ Both ears the same, for comparison.
 ## Flashing
 
 Each [release](https://github.com/DL8UG/HORCHPOSTEN-ESP32-CW-BINAURAL/releases) has `horchposten-vX.Y.Z-merged.bin`, one
-image for address 0x0:
+image for address 0x0. Connect the micro USB socket "UART" and flash it
+with [esptool](https://docs.espressif.com/projects/esptool/):
 
 ```sh
 pip install esptool
-esptool.py --chip esp32 --port /dev/ttyUSB0 write_flash 0x0 horchposten-vX.Y.Z-merged.bin
+esptool --chip esp32 --port /dev/ttyUSB0 write-flash 0x0 horchposten-vX.Y.Z-merged.bin
 ```
 
-Use the micro USB socket "UART". If the board doesn't enter the download
-mode by itself, hold BOOT and press RST. The browser tool
-[ESP Tool](https://espressif.github.io/esptool-js/) works too.
+The port is `/dev/ttyUSB0` on Linux, `/dev/cu.usbserial-…` on macOS and
+`COM3` or similar on Windows. Older esptool versions are called as
+`esptool.py … write_flash`. If the board doesn't enter the download mode
+by itself, hold BOOT and press RST.
+
+Without installing anything: open
+[ESP Tool](https://espressif.github.io/esptool-js/) in Chrome or Edge,
+connect, add the merged image at address 0x0 and program it.
 
 ## Building from source
 
