@@ -8,6 +8,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Tested with a transceiver on the V2.2 board (A618).
 - Enclosure printed and fitted on a V2.2 board (A618); no longer a draft.
 - Enclosure: key plungers 8 mm longer; both USB openings 2 mm wider and
   higher, POWER 3 mm further forward; jack openings 2 mm larger (9 mm);

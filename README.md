@@ -8,8 +8,9 @@ stands out of the noise.
 
 ![Enclosure](docs/img/case-assembly.png)
 
-> **Status:** work in progress. Signal chain tested on the PC
-> (host tests), firmware builds; not yet tested on the hardware.
+> **Status:** works on an ESP32-Audio-Kit V2.2 (A618, ES8388) with a
+> transceiver; the enclosure is printed and fits. AC101 boards are
+> untested.
 
 ## Contents
 
