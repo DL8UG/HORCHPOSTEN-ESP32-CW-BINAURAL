@@ -206,18 +206,20 @@ module lid_lettering() {
     top = shell_h + lid_t - engrave;
     translate([0, 0, top]) linear_extrude(engrave + 1) {
         // name in the free area in the middle
-        translate([outer[0] / 2, off[1] + 38]) text("HORCHPOSTEN", size = 6, font = font, halign = "center");
-        translate([outer[0] / 2, off[1] + 31]) text("ESP32 CW BINAURAL", size = 3.2, font = font, halign = "center");
-        translate([outer[0] / 2, off[1] + 26]) text("by DL8UG", size = 2.4, font = "Liberation Sans", halign = "center");
-        // key functions behind the keys: short press, long press behind it
-        for (i = [0:len(keys) - 1]) {
-            k = keys[i];
-            translate([off[0] + k[0], off[1] + k[1] + 6.0]) text(key_labels[i][0], size = 1.7, font = font, halign = "center");
-            translate([off[0] + k[0], off[1] + k[1] + 8.8]) text(key_labels[i][1], size = 1.6, font = "Liberation Sans", halign = "center");
+        translate([outer[0] / 2, off[1] + 45]) text("HORCHPOSTEN", size = 7.5, font = font, halign = "center");
+        translate([outer[0] / 2, off[1] + 37]) text("ESP32 CW BINAURAL", size = 4.2, font = font, halign = "center");
+        translate([outer[0] / 2, off[1] + 31]) text("by DL8UG", size = 3.0, font = "Liberation Sans", halign = "center");
+        // functions behind the row of eight positions (RST, BOOT, KEY1..KEY6):
+        // short press, long press behind it; every second position one row
+        // further back, so neighbouring labels get twice the key pitch
+        all = concat(pin_holes, keys);
+        labels = concat([["RST", ""], ["BOOT", ""]], key_labels);
+        for (i = [0:len(all) - 1]) {
+            k = all[i];
+            dy = i % 2 == 0 ? 0 : 7.0;
+            translate([off[0] + k[0], off[1] + k[1] + 6.0 + dy]) text(labels[i][0], size = 2.6, font = font, halign = "center");
+            translate([off[0] + k[0], off[1] + k[1] + 9.5 + dy]) text(labels[i][1], size = 2.3, font = "Liberation Sans", halign = "center");
         }
-        // pin holes, same rows as the key labels
-        translate([off[0] + pin_holes[0][0], off[1] + pin_holes[0][1] + 6.0]) text("RST", size = 1.7, font = font, halign = "center");
-        translate([off[0] + pin_holes[1][0], off[1] + pin_holes[1][1] + 6.0]) text("BOOT", size = 1.7, font = font, halign = "center");
     }
 }
 
