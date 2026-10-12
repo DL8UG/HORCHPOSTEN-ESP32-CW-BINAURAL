@@ -281,11 +281,6 @@ Two cases:
   tones in between. The new filter starts from rest in a second slot and
   is cross-faded with the old one over 20 ms.
 
-The cross-fade of two different filters can still dip a tone for a few
-milliseconds where their phases differ much (measured on the host: up to
-−10 dB from 500 Hz to off for a tone 200 Hz from the centre). This is an
-open point.
-
 ### AGC on and off
 
 The AGC's envelope and gain run all the time, also with the AGC off.
