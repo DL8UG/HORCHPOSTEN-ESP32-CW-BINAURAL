@@ -50,8 +50,8 @@ led = [70, 58];
 ports = [
     ["LINE IN", "right", 44.2, 3.0, 7.0, 7.0, true],
     ["PHONES",  "right", 55.2, 3.0, 7.0, 7.0, true],
-    ["POWER",   "left",  24.7, 1.8, 9.0, 4.5, false],
-    ["UART",    "left",  35.9, 1.8, 9.0, 4.5, false],
+    ["POWER",   "left",  21.7, 1.8, 11.0, 6.5, false],
+    ["UART",    "left",  35.9, 1.8, 11.0, 6.5, false],
 ];
 
 /* ---------- enclosure ---------- */
