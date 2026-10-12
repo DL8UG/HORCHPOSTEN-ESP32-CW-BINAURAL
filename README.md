@@ -27,6 +27,7 @@ stands out of the noise.
 - [Flashing](#flashing)
 - [Building from source](#building-from-source)
 - [Enclosure](#enclosure)
+- [Plans](#plans)
 - [Feedback](#feedback)
 - [License](#license)
 - [Credits](#credits)
@@ -209,6 +210,16 @@ processed ones, so loudness doesn't decide the comparison:
 A parametric 3D printable enclosure is in [case/](case/README.md). It is
 printed and fits the V2.2 board (A618). If your board is different,
 measure it before printing; the README there says what to measure.
+
+## Plans
+
+A display is planned as an option for a second version. It would show
+the settings that the LED now only blinks: mode, width, filter, pitch,
+AGC, volume, input gain and mute, and the result of auto pitch. The
+groundwork is there: the firmware reports every change to listeners
+(`firmware/main/ui_state.h`), so a display only needs to register as one,
+and the enclosure has a window in the lid that is off by default
+(`display_window`, see [case/README.md](case/README.md#display-window)).
 
 ## Feedback
 
