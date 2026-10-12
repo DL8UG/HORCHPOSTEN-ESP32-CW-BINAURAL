@@ -49,8 +49,8 @@ led = [70, 58];
 // (y 0), "back"; label "mic", "phones" and "power" draw a symbol, anything
 // else is printed as text
 ports = [
-    ["mic",    "right", 44.2, 2.0, 7.0, 9.0, false],    // LINE IN; 2 mm extra
-    ["phones", "right", 55.2, 2.0, 7.0, 9.0, false],    // room below the plug
+    ["mic",    "right", 44.2, 3.0, 9.0, 9.0, true],     // LINE IN
+    ["phones", "right", 55.2, 3.0, 9.0, 9.0, true],
     ["power",  "left",  21.7, 1.8, 11.0, 6.5, false],
     ["UART",   "left",  35.9, 1.8, 11.0, 6.5, false],
 ];
