@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Enclosure: key plungers 8 mm longer; both USB openings 2 mm wider and
+  higher, POWER 3 mm further forward; jack openings 2 mm longer downwards;
+  larger lid lettering, key labels in two staggered rows; wall labels
+  below the openings, larger, with symbols for power, phones and line in.
+
 ## [0.1.0] - 2026-10-06
 
 First version. Tested on an ESP32-Audio-Kit V2.2 (A618, ES8388) with
