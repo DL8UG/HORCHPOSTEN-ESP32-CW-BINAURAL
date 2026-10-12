@@ -183,15 +183,13 @@ module port_label_2d(name, h) {
     else text(name, size = 0.95 * h, font = font, halign = "center");
 }
 
-// label next to a port on the outside of the wall: on the side of the
-// opening with more room (above up to the lid, below down to the floor)
+// label below a port on the outside of the wall, smaller if the room down
+// to the floor is too low
 module port_label(p) {
     side = p[1]; pos = p[2]; zc = pcb_top + p[3];
-    z_up = zc + p[5] / 2 + 1.0;
-    room_up = shell_h - 0.5 - z_up;
     room_down = zc - p[5] / 2 - 1.0 - 0.8;
-    lh = min(port_label_h, max(room_up, room_down));
-    z = room_up >= room_down ? z_up : zc - p[5] / 2 - 1.0 - lh;
+    lh = min(port_label_h, room_down);
+    z = zc - p[5] / 2 - 1.0 - lh;
     if (lh >= 2) {
         if (side == "left")
             translate([engrave - 0.01, off[1] + pos, z]) rotate([90, 0, -90])
