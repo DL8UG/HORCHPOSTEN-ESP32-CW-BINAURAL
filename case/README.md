@@ -5,14 +5,11 @@ Parametric enclosure for the ESP32-Audio-Kit V2.2 in OpenSCAD:
 
 ![Enclosure, exploded view](../docs/img/case-assembly.png)
 
-> **Draft:** this enclosure has not been printed or tested yet. Take it as
-> a solid base for your own design.
->
-> The layout (one row of eight keys in front, jacks on the right, USB on
-> the left, the module antenna out over the back edge) is checked on a
-> V2.2 board marked A618. The millimetres come from a product photo with
-> dimensions and are **estimates**: measure your board and correct the
-> values before the first print (see [Measuring](#measuring)).
+The enclosure is printed and fits a V2.2 board marked A618. The layout has
+one row of eight keys in front, the jacks on the right, USB on the left and
+the module antenna out over the back edge. Other boards or revisions may
+differ by a few millimetres, so measure yours before the first print (see
+[Measuring](#measuring)).
 
 ## Contents
 
@@ -65,7 +62,7 @@ shell; jacks and USB plugs must line up with the openings.
 ## Building the STL files
 
 Ready STL files are in [stl/](stl/), rendered from the SCAD file with the
-estimated board positions. After changing parameters, render them again:
+board positions of the A618. After changing parameters, render them again:
 
 ```sh
 for p in bottom lid buttons; do

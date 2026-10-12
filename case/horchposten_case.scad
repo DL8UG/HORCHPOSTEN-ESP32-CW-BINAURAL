@@ -1,8 +1,8 @@
 // Horchposten - enclosure for the ESP32-Audio-Kit V2.2 (ESP32-A1S)
 //
-// Parametric: all board positions are in the block below. The start
-// values are estimates; measure your board (see README.md, "Measuring")
-// and correct them before the first print.
+// Parametric: all board positions are in the block below. The values
+// fit a V2.2 board marked A618 (printed and checked); measure yours if it
+// differs (see README.md, "Measuring").
 //
 // Parts (select with -D part="..." on the command line):
 //   bottom   shell with standoffs and wall openings
