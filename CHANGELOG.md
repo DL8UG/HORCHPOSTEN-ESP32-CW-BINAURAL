@@ -9,7 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Enclosure: key plungers 8 mm longer; both USB openings 2 mm wider and
-  higher, POWER 3 mm further forward; jack openings 2 mm longer downwards;
+  higher, POWER 3 mm further forward; jack openings 2 mm larger (9 mm);
   larger lid lettering, key labels in two staggered rows; wall labels
   below the openings, larger, with symbols for power, phones and line in.
 
