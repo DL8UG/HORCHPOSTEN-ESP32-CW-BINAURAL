@@ -72,7 +72,7 @@ key_hole_d = 6.6;          // lid guide for the plungers
 plunger_d = 6.0;           // 0.3 mm play on each side in the guide
 plunger_flange_d = 7.6;    // < key_pitch: neighbouring flanges must not touch
 plunger_flange_h = 1.2;
-plunger_above = 1.6;       // how far the plungers stand above the lid
+plunger_above = 9.6;       // how far the plungers stand above the lid
 tube_press = 0.2;          // lid tubes this much longer than the room above the PCB
 engrave = 0.6;             // depth of the lid lettering
 font = "Liberation Sans:style=Bold";
