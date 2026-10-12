@@ -46,12 +46,13 @@ led = [70, 58];
 
 // wall openings: [label, side, position along the side, centre height above
 // the PCB top, width, height, round?]; side: "left" (x 0), "right", "front"
-// (y 0), "back"
+// (y 0), "back"; label "mic", "phones" and "power" draw a symbol, anything
+// else is printed as text
 ports = [
-    ["LINE IN", "right", 44.2, 3.0, 7.0, 7.0, true],
-    ["PHONES",  "right", 55.2, 3.0, 7.0, 7.0, true],
-    ["POWER",   "left",  21.7, 1.8, 11.0, 6.5, false],
-    ["UART",    "left",  35.9, 1.8, 11.0, 6.5, false],
+    ["mic",    "right", 44.2, 3.0, 7.0, 7.0, true],     // LINE IN
+    ["phones", "right", 55.2, 3.0, 7.0, 7.0, true],
+    ["power",  "left",  21.7, 1.8, 11.0, 6.5, false],
+    ["UART",   "left",  35.9, 1.8, 11.0, 6.5, false],
 ];
 
 /* ---------- enclosure ---------- */
@@ -74,7 +75,9 @@ plunger_flange_d = 7.6;    // < key_pitch: neighbouring flanges must not touch
 plunger_flange_h = 1.2;
 plunger_above = 9.6;       // how far the plungers stand above the lid
 tube_press = 0.2;          // lid tubes this much longer than the room above the PCB
-engrave = 0.6;             // depth of the lid lettering
+engrave = 0.6;             // depth of the lid and wall lettering
+port_label_h = 5.0;        // wall labels and symbols, smaller where the wall is too low
+sym_stroke = 0.8;          // line width of the wall symbols
 font = "Liberation Sans:style=Bold";
 
 // later stage: window for a display in the lid
@@ -126,25 +129,82 @@ module port_cut(p) {
         translate([off[0] + pos, outer[1] + 1, zc]) rotate([90, 0, 0]) shape();
 }
 
-// label next to a port on the outside of the wall
+// wall symbols, 2D, centred on x = 0, standing on y = 0, h high
+module sym_power(h, s = sym_stroke) {
+    r = (h - s) / 2;                          // centre line of the ring
+    translate([0, h / 2]) {
+        difference() {
+            difference() { circle(r = r + s / 2); circle(r = r - s / 2); }
+            // gap at the top for the bar
+            polygon([[0, 0], [-h * sin(38), h * cos(38)], [h * sin(38), h * cos(38)]]);
+        }
+        translate([-s / 2, -r * 0.15]) square([s, h / 2 + r * 0.15]);
+    }
+}
+
+module sym_phones(h, s = sym_stroke) {
+    ro = h / 2;
+    // headband
+    translate([0, h - ro]) intersection() {
+        difference() { circle(r = ro); circle(r = ro - s); }
+        translate([-ro, 0]) square([2 * ro, ro]);
+    }
+    // ear cups, the legs of the band run into them
+    for (m = [0, 1]) mirror([m, 0]) {
+        translate([ro - s, 0.4 * h]) square([s, 0.6 * h - ro + 0.01]);
+        translate([ro - 0.3 * h, 0]) offset(r = 0.3) offset(delta = -0.3) square([0.3 * h, 0.45 * h]);
+    }
+}
+
+module sym_mic(h, s = sym_stroke) {
+    ri = 2 * s;                               // inner radius of the holder
+    yu = s + 0.3 + ri + s;                    // holder centre above foot and stem
+    // capsule, its lower end concentric with the holder
+    hull() { translate([0, yu]) circle(r = s); translate([0, h - s]) circle(r = s); }
+    // U-shaped holder, arms a little above its centre
+    difference() {
+        union() {
+            translate([0, yu]) circle(r = ri + s);
+            translate([-ri - s, yu]) square([2 * (ri + s), 0.4]);
+        }
+        translate([0, yu]) circle(r = ri);
+        translate([-ri, yu]) square([2 * ri, h]);
+        translate([-ri - s - 1, yu + 0.4]) square([2 * (ri + s) + 2, h]);
+    }
+    // stem and foot
+    translate([-s / 2, s - 0.01]) square([s, yu - ri - s - s + 0.02]);
+    translate([-1.5 * s, 0]) square([3 * s, s]);
+}
+
+module port_label_2d(name, h) {
+    if (name == "power") sym_power(h);
+    else if (name == "phones") sym_phones(h);
+    else if (name == "mic") sym_mic(h);
+    else text(name, size = 0.95 * h, font = font, halign = "center");
+}
+
+// label next to a port on the outside of the wall: on the side of the
+// opening with more room (above up to the lid, below down to the floor)
 module port_label(p) {
     side = p[1]; pos = p[2]; zc = pcb_top + p[3];
-    // above the opening if there is room below the lid, else below it
     z_up = zc + p[5] / 2 + 1.0;
-    z = z_up + 3 < shell_h - 0.5 ? z_up : zc - p[5] / 2 - 3.6;
-    if (z > 0.8) {
+    room_up = shell_h - 0.5 - z_up;
+    room_down = zc - p[5] / 2 - 1.0 - 0.8;
+    lh = min(port_label_h, max(room_up, room_down));
+    z = room_up >= room_down ? z_up : zc - p[5] / 2 - 1.0 - lh;
+    if (lh >= 2) {
         if (side == "left")
             translate([engrave - 0.01, off[1] + pos, z]) rotate([90, 0, -90])
-                linear_extrude(engrave + 1) text(p[0], size = 2.6, font = font, halign = "center");
+                linear_extrude(engrave + 1) port_label_2d(p[0], lh);
         else if (side == "right")
             translate([outer[0] - engrave + 0.01, off[1] + pos, z]) rotate([90, 0, 90])
-                linear_extrude(engrave + 1) text(p[0], size = 2.6, font = font, halign = "center");
+                linear_extrude(engrave + 1) port_label_2d(p[0], lh);
         else if (side == "front")
             translate([off[0] + pos, engrave - 0.01, z]) rotate([90, 0, 0])
-                linear_extrude(engrave + 1) text(p[0], size = 2.6, font = font, halign = "center");
+                linear_extrude(engrave + 1) port_label_2d(p[0], lh);
         else
             translate([off[0] + pos, outer[1] - engrave + 0.01, z]) rotate([90, 0, 180])
-                linear_extrude(engrave + 1) text(p[0], size = 2.6, font = font, halign = "center");
+                linear_extrude(engrave + 1) port_label_2d(p[0], lh);
     }
 }
 
